@@ -203,6 +203,8 @@ wsi_device_init(struct wsi_device *wsi,
    WSI_GET_CB(GetPhysicalDeviceFormatProperties2);
    WSI_GET_CB(GetPhysicalDeviceImageFormatProperties2);
    WSI_GET_CB(GetSemaphoreFdKHR);
+   WSI_GET_CB(ImportSemaphoreFdKHR);
+   WSI_GET_CB(ImportFenceFdKHR);
    WSI_GET_CB(ResetFences);
    WSI_GET_CB(QueueSubmit);
    WSI_GET_CB(SetDebugUtilsObjectNameEXT);
@@ -1181,8 +1183,16 @@ wsi_signal_semaphore_for_image(struct vk_device *device,
                                const struct wsi_image *image,
                                VkSemaphore _semaphore)
 {
-   if (device->physical->supported_sync_types == NULL)
-      return VK_SUCCESS;
+   if (device->physical->supported_sync_types == NULL) {
+      const VkImportSemaphoreFdInfoKHR import_fd_info = {
+         .sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_FD_INFO_KHR,
+         .semaphore = _semaphore,
+         .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT,
+         .fd = -1,
+         .flags = VK_SEMAPHORE_IMPORT_TEMPORARY_BIT,
+      };
+      return chain->wsi->ImportSemaphoreFdKHR(chain->device, &import_fd_info);
+   }
 
    VK_FROM_HANDLE(vk_semaphore, semaphore, _semaphore);
 
@@ -1217,8 +1227,16 @@ wsi_signal_fence_for_image(struct vk_device *device,
                            const struct wsi_image *image,
                            VkFence _fence)
 {
-   if (device->physical->supported_sync_types == NULL)
-      return VK_SUCCESS;
+   if (device->physical->supported_sync_types == NULL) {
+      const VkImportFenceFdInfoKHR import_fd_info = {
+         .sType = VK_STRUCTURE_TYPE_IMPORT_FENCE_FD_INFO_KHR,
+         .fence = _fence,
+         .handleType = VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT,
+         .fd = -1,
+         .flags = VK_FENCE_IMPORT_TEMPORARY_BIT,
+      };
+      return chain->wsi->ImportFenceFdKHR(chain->device, &import_fd_info);
+   }
 
    VK_FROM_HANDLE(vk_fence, fence, _fence);
 
