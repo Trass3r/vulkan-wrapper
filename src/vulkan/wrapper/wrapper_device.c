@@ -22,6 +22,7 @@ const struct vk_device_extension_table wrapper_device_extensions =
    .KHR_present_id = true,
    .KHR_present_wait = true,
    .KHR_incremental_present = true,
+   .KHR_robustness2 = true,  /* Emulated when not natively supported */
 };
 
 const struct vk_device_extension_table wrapper_filter_extensions =
@@ -221,6 +222,23 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
          wrapper_device_trampolines.UnmapMemory2;
       device->vk.dispatch_table.FreeMemory =
          wrapper_device_trampolines.FreeMemory;
+   }
+
+   /* Setup null descriptor emulation if needed */
+   device->null_descriptors_enabled = physical_device->null_descriptors_emulated;
+   if (device->null_descriptors_enabled) {
+      result = wrapper_create_dummy_resources(device);
+      if (result != VK_SUCCESS) {
+         wrapper_DestroyDevice(wrapper_device_to_handle(device),
+                               &device->vk.alloc);
+         return vk_error(physical_device, result);
+      }
+
+      /* Intercept descriptor update functions */
+      device->vk.dispatch_table.UpdateDescriptorSets =
+         wrapper_UpdateDescriptorSets;
+      device->vk.dispatch_table.UpdateDescriptorSetWithTemplate =
+         wrapper_UpdateDescriptorSetWithTemplate;
    }
 
    *pDevice = wrapper_device_to_handle(device);
@@ -475,6 +493,11 @@ wrapper_DestroyDevice(VkDevice _device, const VkAllocationCallbacks* pAllocator)
 
    simple_mtx_unlock(&device->resource_mutex);
 
+   /* Clean up null descriptor emulation resources */
+   if (device->null_descriptors_enabled) {
+      wrapper_destroy_dummy_resources(device);
+   }
+
    list_for_each_entry_safe(struct vk_queue, queue, &device->vk.queues, link) {
       vk_queue_finish(queue);
       vk_free2(&device->vk.alloc, pAllocator, queue);
@@ -526,4 +549,374 @@ wrapper_GetPrivateData(VkDevice _device, VkObjectType objectType,
    uint64_t object_handle = unwrap_device_object(objectType, objectHandle);
    return device->dispatch_table.GetPrivateData(device->dispatch_handle,
       objectType, object_handle, privateDataSlot, pData);
+}
+
+/* Null Descriptor Emulation Implementation */
+
+VkResult
+wrapper_create_dummy_resources(struct wrapper_device *device)
+{
+   VkResult result;
+   
+   /* Create dummy buffer (1 byte) */
+   VkBufferCreateInfo buffer_info = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = 1,
+      .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+               VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+   };
+   
+   result = device->dispatch_table.CreateBuffer(device->dispatch_handle, &buffer_info, NULL, &device->dummy_buffer);
+   if (result != VK_SUCCESS)
+      return result;
+
+   /* Allocate memory for dummy buffer */
+   VkMemoryRequirements buffer_reqs;
+   device->dispatch_table.GetBufferMemoryRequirements(device->dispatch_handle, device->dummy_buffer, &buffer_reqs);
+
+   VkMemoryAllocateInfo buffer_alloc_info = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .allocationSize = buffer_reqs.size,
+      .memoryTypeIndex = wrapper_select_device_memory_type(device, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+   };
+
+   result = device->dispatch_table.AllocateMemory(device->dispatch_handle, &buffer_alloc_info, NULL, &device->dummy_buffer_memory);
+   if (result != VK_SUCCESS)
+      goto fail_buffer;
+
+   result = device->dispatch_table.BindBufferMemory(device->dispatch_handle, device->dummy_buffer, device->dummy_buffer_memory, 0);
+   if (result != VK_SUCCESS)
+      goto fail_buffer_memory;
+
+   /* Create dummy 1D image */
+   VkImageCreateInfo image_info_1d = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+      .imageType = VK_IMAGE_TYPE_1D,
+      .format = VK_FORMAT_R8G8B8A8_UNORM,
+      .extent = { .width = 1, .height = 1, .depth = 1 },
+      .mipLevels = 1,
+      .arrayLayers = 1,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .tiling = VK_IMAGE_TILING_OPTIMAL,
+      .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+   };
+
+   result = device->dispatch_table.CreateImage(device->dispatch_handle, &image_info_1d, NULL, &device->dummy_image_1d);
+   if (result != VK_SUCCESS)
+      goto fail_buffer_memory;
+
+   /* Allocate memory for 1D image */
+   VkMemoryRequirements image_reqs_1d;
+   device->dispatch_table.GetImageMemoryRequirements(device->dispatch_handle, device->dummy_image_1d, &image_reqs_1d);
+
+   VkMemoryAllocateInfo image_alloc_info_1d = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .allocationSize = image_reqs_1d.size,
+      .memoryTypeIndex = wrapper_select_device_memory_type(device, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+   };
+
+   result = device->dispatch_table.AllocateMemory(device->dispatch_handle, &image_alloc_info_1d, NULL, &device->dummy_image_memory_1d);
+   if (result != VK_SUCCESS)
+      goto fail_image_1d;
+
+   result = device->dispatch_table.BindImageMemory(device->dispatch_handle, device->dummy_image_1d, device->dummy_image_memory_1d, 0);
+   if (result != VK_SUCCESS)
+      goto fail_image_memory_1d;
+
+   /* Create dummy 2D image */
+   VkImageCreateInfo image_info_2d = image_info_1d;
+   image_info_2d.imageType = VK_IMAGE_TYPE_2D;
+
+   result = device->dispatch_table.CreateImage(device->dispatch_handle, &image_info_2d, NULL, &device->dummy_image_2d);
+   if (result != VK_SUCCESS)
+      goto fail_image_memory_1d;
+
+   /* Allocate memory for 2D image */
+   VkMemoryRequirements image_reqs_2d;
+   device->dispatch_table.GetImageMemoryRequirements(device->dispatch_handle, device->dummy_image_2d, &image_reqs_2d);
+
+   VkMemoryAllocateInfo image_alloc_info_2d = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .allocationSize = image_reqs_2d.size,
+      .memoryTypeIndex = wrapper_select_device_memory_type(device, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+   };
+
+   result = device->dispatch_table.AllocateMemory(device->dispatch_handle, &image_alloc_info_2d, NULL, &device->dummy_image_memory_2d);
+   if (result != VK_SUCCESS)
+      goto fail_image_2d;
+
+   result = device->dispatch_table.BindImageMemory(device->dispatch_handle, device->dummy_image_2d, device->dummy_image_memory_2d, 0);
+   if (result != VK_SUCCESS)
+      goto fail_image_memory_2d;
+
+   /* Create dummy 3D image */
+   VkImageCreateInfo image_info_3d = image_info_1d;
+   image_info_3d.imageType = VK_IMAGE_TYPE_3D;
+
+   result = device->dispatch_table.CreateImage(device->dispatch_handle, &image_info_3d, NULL, &device->dummy_image_3d);
+   if (result != VK_SUCCESS)
+      goto fail_image_memory_2d;
+
+   /* Allocate memory for 3D image */
+   VkMemoryRequirements image_reqs_3d;
+   device->dispatch_table.GetImageMemoryRequirements(device->dispatch_handle, device->dummy_image_3d, &image_reqs_3d);
+
+   VkMemoryAllocateInfo image_alloc_info_3d = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .allocationSize = image_reqs_3d.size,
+      .memoryTypeIndex = wrapper_select_device_memory_type(device, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+   };
+
+   result = device->dispatch_table.AllocateMemory(device->dispatch_handle, &image_alloc_info_3d, NULL, &device->dummy_image_memory_3d);
+   if (result != VK_SUCCESS)
+      goto fail_image_3d;
+
+   result = device->dispatch_table.BindImageMemory(device->dispatch_handle, device->dummy_image_3d, device->dummy_image_memory_3d, 0);
+   if (result != VK_SUCCESS)
+      goto fail_image_memory_3d;
+
+   /* Create image views */
+   VkImageViewCreateInfo view_info_1d = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      .image = device->dummy_image_1d,
+      .viewType = VK_IMAGE_VIEW_TYPE_1D,
+      .format = VK_FORMAT_R8G8B8A8_UNORM,
+      .subresourceRange = {
+         .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+         .baseMipLevel = 0,
+         .levelCount = 1,
+         .baseArrayLayer = 0,
+         .layerCount = 1,
+      },
+   };
+
+   result = device->dispatch_table.CreateImageView(device->dispatch_handle, &view_info_1d, NULL, &device->dummy_image_view_1d);
+   if (result != VK_SUCCESS)
+      goto fail_image_memory_3d;
+
+   VkImageViewCreateInfo view_info_2d = view_info_1d;
+   view_info_2d.image = device->dummy_image_2d;
+   view_info_2d.viewType = VK_IMAGE_VIEW_TYPE_2D;
+
+   result = device->dispatch_table.CreateImageView(device->dispatch_handle, &view_info_2d, NULL, &device->dummy_image_view_2d);
+   if (result != VK_SUCCESS)
+      goto fail_image_view_1d;
+
+   VkImageViewCreateInfo view_info_3d = view_info_1d;
+   view_info_3d.image = device->dummy_image_3d;
+   view_info_3d.viewType = VK_IMAGE_VIEW_TYPE_3D;
+
+   result = device->dispatch_table.CreateImageView(device->dispatch_handle, &view_info_3d, NULL, &device->dummy_image_view_3d);
+   if (result != VK_SUCCESS)
+      goto fail_image_view_2d;
+
+   /* Create dummy sampler */
+   VkSamplerCreateInfo sampler_info = {
+      .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+      .magFilter = VK_FILTER_NEAREST,
+      .minFilter = VK_FILTER_NEAREST,
+      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+      .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+      .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+      .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+      .mipLodBias = 0.0f,
+      .anisotropyEnable = VK_FALSE,
+      .maxAnisotropy = 1.0f,
+      .compareEnable = VK_FALSE,
+      .minLod = 0.0f,
+      .maxLod = 0.0f,
+      .borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+      .unnormalizedCoordinates = VK_FALSE,
+   };
+
+   result = device->dispatch_table.CreateSampler(device->dispatch_handle, &sampler_info, NULL, &device->dummy_sampler);
+   if (result != VK_SUCCESS)
+      goto fail_image_view_3d;
+
+   return VK_SUCCESS;
+
+fail_image_view_3d:
+   device->dispatch_table.DestroyImageView(device->dispatch_handle, device->dummy_image_view_3d, NULL);
+fail_image_view_2d:
+   device->dispatch_table.DestroyImageView(device->dispatch_handle, device->dummy_image_view_2d, NULL);
+fail_image_view_1d:
+   device->dispatch_table.DestroyImageView(device->dispatch_handle, device->dummy_image_view_1d, NULL);
+fail_image_memory_3d:
+   device->dispatch_table.FreeMemory(device->dispatch_handle, device->dummy_image_memory_3d, NULL);
+fail_image_3d:
+   device->dispatch_table.DestroyImage(device->dispatch_handle, device->dummy_image_3d, NULL);
+fail_image_memory_2d:
+   device->dispatch_table.FreeMemory(device->dispatch_handle, device->dummy_image_memory_2d, NULL);
+fail_image_2d:
+   device->dispatch_table.DestroyImage(device->dispatch_handle, device->dummy_image_2d, NULL);
+fail_image_memory_1d:
+   device->dispatch_table.FreeMemory(device->dispatch_handle, device->dummy_image_memory_1d, NULL);
+fail_image_1d:
+   device->dispatch_table.DestroyImage(device->dispatch_handle, device->dummy_image_1d, NULL);
+fail_buffer_memory:
+   device->dispatch_table.FreeMemory(device->dispatch_handle, device->dummy_buffer_memory, NULL);
+fail_buffer:
+   device->dispatch_table.DestroyBuffer(device->dispatch_handle, device->dummy_buffer, NULL);
+   return result;
+}
+
+void
+wrapper_destroy_dummy_resources(struct wrapper_device *device)
+{
+   if (device->dummy_sampler != VK_NULL_HANDLE) {
+      device->dispatch_table.DestroySampler(device->dispatch_handle, device->dummy_sampler, NULL);
+   }
+   if (device->dummy_image_view_3d != VK_NULL_HANDLE) {
+      device->dispatch_table.DestroyImageView(device->dispatch_handle, device->dummy_image_view_3d, NULL);
+   }
+   if (device->dummy_image_view_2d != VK_NULL_HANDLE) {
+      device->dispatch_table.DestroyImageView(device->dispatch_handle, device->dummy_image_view_2d, NULL);
+   }
+   if (device->dummy_image_view_1d != VK_NULL_HANDLE) {
+      device->dispatch_table.DestroyImageView(device->dispatch_handle, device->dummy_image_view_1d, NULL);
+   }
+   if (device->dummy_image_memory_3d != VK_NULL_HANDLE) {
+      device->dispatch_table.FreeMemory(device->dispatch_handle, device->dummy_image_memory_3d, NULL);
+   }
+   if (device->dummy_image_3d != VK_NULL_HANDLE) {
+      device->dispatch_table.DestroyImage(device->dispatch_handle, device->dummy_image_3d, NULL);
+   }
+   if (device->dummy_image_memory_2d != VK_NULL_HANDLE) {
+      device->dispatch_table.FreeMemory(device->dispatch_handle, device->dummy_image_memory_2d, NULL);
+   }
+   if (device->dummy_image_2d != VK_NULL_HANDLE) {
+      device->dispatch_table.DestroyImage(device->dispatch_handle, device->dummy_image_2d, NULL);
+   }
+   if (device->dummy_image_memory_1d != VK_NULL_HANDLE) {
+      device->dispatch_table.FreeMemory(device->dispatch_handle, device->dummy_image_memory_1d, NULL);
+   }
+   if (device->dummy_image_1d != VK_NULL_HANDLE) {
+      device->dispatch_table.DestroyImage(device->dispatch_handle, device->dummy_image_1d, NULL);
+   }
+   if (device->dummy_buffer_memory != VK_NULL_HANDLE) {
+      device->dispatch_table.FreeMemory(device->dispatch_handle, device->dummy_buffer_memory, NULL);
+   }
+   if (device->dummy_buffer != VK_NULL_HANDLE) {
+      device->dispatch_table.DestroyBuffer(device->dispatch_handle, device->dummy_buffer, NULL);
+   }
+}
+
+static void
+substitute_null_descriptors(struct wrapper_device *device, uint32_t descriptorWriteCount, VkWriteDescriptorSet* pDescriptorWrites)
+{
+   for (uint32_t i = 0; i < descriptorWriteCount; i++) {
+      VkWriteDescriptorSet *write = &pDescriptorWrites[i];
+      
+      if (write->dstSet == VK_NULL_HANDLE)
+         continue;
+         
+      switch (write->descriptorType) {
+      case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+      case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+      case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+      case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+         if (write->pBufferInfo) {
+            for (uint32_t j = 0; j < write->descriptorCount; j++) {
+               VkDescriptorBufferInfo *buf_info = (VkDescriptorBufferInfo*)&write->pBufferInfo[j];
+               if (buf_info->buffer == VK_NULL_HANDLE) {
+                  buf_info->buffer = device->dummy_buffer;
+                  buf_info->offset = 0;
+                  buf_info->range = VK_WHOLE_SIZE;
+               }
+            }
+         }
+         break;
+         
+      case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+      case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+         if (write->pImageInfo) {
+            for (uint32_t j = 0; j < write->descriptorCount; j++) {
+               VkDescriptorImageInfo *img_info = (VkDescriptorImageInfo*)&write->pImageInfo[j];
+               if (img_info->imageView == VK_NULL_HANDLE) {
+                  img_info->imageView = device->dummy_image_view_2d; /* Default to 2D */
+                  img_info->imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+               }
+            }
+         }
+         break;
+         
+      case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+         if (write->pImageInfo) {
+            for (uint32_t j = 0; j < write->descriptorCount; j++) {
+               VkDescriptorImageInfo *img_info = (VkDescriptorImageInfo*)&write->pImageInfo[j];
+               if (img_info->imageView == VK_NULL_HANDLE) {
+                  img_info->imageView = device->dummy_image_view_2d;
+                  img_info->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+               }
+               if (img_info->sampler == VK_NULL_HANDLE) {
+                  img_info->sampler = device->dummy_sampler;
+               }
+            }
+         }
+         break;
+         
+      case VK_DESCRIPTOR_TYPE_SAMPLER:
+         if (write->pImageInfo) {
+            for (uint32_t j = 0; j < write->descriptorCount; j++) {
+               VkDescriptorImageInfo *img_info = (VkDescriptorImageInfo*)&write->pImageInfo[j];
+               if (img_info->sampler == VK_NULL_HANDLE) {
+                  img_info->sampler = device->dummy_sampler;
+               }
+            }
+         }
+         break;
+         
+      default:
+         break;
+      }
+   }
+}
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_UpdateDescriptorSets(VkDevice _device,
+                             uint32_t descriptorWriteCount,
+                             const VkWriteDescriptorSet* pDescriptorWrites,
+                             uint32_t descriptorCopyCount,
+                             const VkCopyDescriptorSet* pDescriptorCopies)
+{
+   VK_FROM_HANDLE(wrapper_device, device, _device);
+   
+   if (device->null_descriptors_enabled && descriptorWriteCount > 0) {
+      /* Make a mutable copy of the descriptor writes */
+      VkWriteDescriptorSet *writes = malloc(descriptorWriteCount * sizeof(VkWriteDescriptorSet));
+      if (writes) {
+         memcpy(writes, pDescriptorWrites, descriptorWriteCount * sizeof(VkWriteDescriptorSet));
+         substitute_null_descriptors(device, descriptorWriteCount, writes);
+         
+         device->dispatch_table.UpdateDescriptorSets(device->dispatch_handle,
+                                                     descriptorWriteCount, writes,
+                                                     descriptorCopyCount, pDescriptorCopies);
+         free(writes);
+         return;
+      }
+   }
+   
+   /* Fallback to direct call */
+   device->dispatch_table.UpdateDescriptorSets(device->dispatch_handle,
+                                               descriptorWriteCount, pDescriptorWrites,
+                                               descriptorCopyCount, pDescriptorCopies);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_UpdateDescriptorSetWithTemplate(VkDevice _device,
+                                        VkDescriptorSet descriptorSet,
+                                        VkDescriptorUpdateTemplate descriptorUpdateTemplate,
+                                        const void* pData)
+{
+   VK_FROM_HANDLE(wrapper_device, device, _device);
+   
+   /* For now, pass through to the driver - full emulation would require parsing the template */
+   /* TODO: Implement template-based null descriptor substitution */
+   device->dispatch_table.UpdateDescriptorSetWithTemplate(device->dispatch_handle,
+                                                          descriptorSet,
+                                                          descriptorUpdateTemplate,
+                                                          pData);
 }

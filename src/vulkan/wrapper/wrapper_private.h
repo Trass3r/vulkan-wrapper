@@ -33,6 +33,8 @@ struct wrapper_physical_device {
    int dma_heap_fd;
    bool enable_map_memory_placed;
    bool enable_bc;
+   bool robustness2_emulated;
+   bool null_descriptors_emulated;
    VkPhysicalDevice dispatch_handle;
    VkPhysicalDeviceProperties2 properties2;
    VkPhysicalDeviceDriverProperties driver_properties;
@@ -66,6 +68,15 @@ struct wrapper_device {
    struct list_head device_memory_list;
    struct wrapper_physical_device *physical;
    struct vk_device_dispatch_table dispatch_table;
+
+   /* Null descriptor emulation */
+   bool null_descriptors_enabled;
+   VkBuffer dummy_buffer;
+   VkDeviceMemory dummy_buffer_memory;
+   VkImage dummy_image_1d, dummy_image_2d, dummy_image_3d;
+   VkDeviceMemory dummy_image_memory_1d, dummy_image_memory_2d, dummy_image_memory_3d;
+   VkImageView dummy_image_view_1d, dummy_image_view_2d, dummy_image_view_3d;
+   VkSampler dummy_sampler;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_device, vk.base, VkDevice,
@@ -112,3 +123,27 @@ wrapper_device_memory_create(struct wrapper_device *device,
 
 void
 wrapper_device_memory_destroy(struct wrapper_device_memory *mem);
+
+/* Null descriptor emulation functions */
+VkResult
+wrapper_create_dummy_resources(struct wrapper_device *device);
+
+void
+wrapper_destroy_dummy_resources(struct wrapper_device *device);
+
+void
+wrapper_check_robustness2_emulation(struct wrapper_physical_device *physical_device);
+
+/* Descriptor update function declarations */
+VKAPI_ATTR void VKAPI_CALL
+wrapper_UpdateDescriptorSets(VkDevice device,
+                             uint32_t descriptorWriteCount,
+                             const VkWriteDescriptorSet* pDescriptorWrites,
+                             uint32_t descriptorCopyCount,
+                             const VkCopyDescriptorSet* pDescriptorCopies);
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_UpdateDescriptorSetWithTemplate(VkDevice device,
+                                        VkDescriptorSet descriptorSet,
+                                        VkDescriptorUpdateTemplate descriptorUpdateTemplate,
+                                        const void* pData);
