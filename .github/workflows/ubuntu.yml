@@ -1,0 +1,101 @@
+name: Ubuntu-CI
+on: 
+  push:
+  pull_request:
+    branches: [ main, wrapper ]
+
+permissions:
+  contents: read
+
+jobs:
+  Ubuntu-CI:
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: ['gcc', 'clang']
+        build_type: ['debug', 'release']
+    runs-on: ubuntu-24.04
+    env:
+      CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
+      CXX: ${{ matrix.compiler == 'clang' && 'clang++' || 'g++' }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          build-essential \
+          pkg-config \
+          python3-pip \
+          python3-setuptools \
+          python3-mako \
+          meson \
+          ninja-build \
+          bison \
+          flex \
+          libdrm-dev \
+          libudev-dev \
+          libx11-dev \
+          libxcb1-dev \
+          libxcb-dri2-0-dev \
+          libxcb-dri3-dev \
+          libxcb-present-dev \
+          libxcb-sync-dev \
+          libxshmfence-dev \
+          libxxf86vm-dev \
+          libxrandr-dev \
+          libxfixes-dev \
+          libxdamage-dev \
+          libxext-dev \
+          libwayland-dev \
+          wayland-protocols \
+          libwayland-egl-backend-dev \
+          vulkan-tools \
+          vulkan-utility-libraries-dev \
+          libvulkan-dev
+        pip3 install --user mako
+    
+    - name: Configure Build
+      run: |
+        BUILD_TYPE=${{ matrix.build_type == 'release' && 'release' || 'debug' }}
+        
+        meson setup build \
+          --buildtype=$BUILD_TYPE \
+          -Dbuild-tests=true \
+          -Dvulkan-drivers=wrapper \
+          -Dgallium-drivers= \
+          -Dplatforms= \
+          -Dopengl=false \
+          -Degl=disabled \
+          -Dgbm=disabled \
+          -Dgles1=disabled \
+          -Dgles2=disabled \
+          -Dandroid-stub=false
+
+    - name: Build
+      run: |
+        ninja -C build
+        meson test -C build
+
+    - name: Install
+      run: meson install -C build --destdir $PWD/install
+
+    - name: 'Upload Artifacts'
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ubuntu-${{ matrix.compiler }}-${{ matrix.build_type }}-result
+        path: |
+          build/meson-logs/
+          install/
+          build/src/vulkan/wrapper/libvulkan_wrapper.so
+        retention-days: 5
+    
+    - name: 'Run Vulkan Info (if available)'
+      run: |
+        if command -v vulkaninfo >/dev/null 2>&1; then
+          echo "=== Vulkan System Info ==="
+          vulkaninfo --summary || echo "vulkaninfo failed, but continuing"
+        else
+          echo "vulkaninfo not available"
+        fi
