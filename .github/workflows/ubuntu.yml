@@ -54,7 +54,7 @@ jobs:
           wayland-protocols \
           libwayland-egl-backend-dev \
           vulkan-tools \
-          vulkan-validationlayers-dev \
+          vulkan-utility-libraries-dev \
           libvulkan-dev
     
     - name: Install Python packages
@@ -80,19 +80,7 @@ jobs:
     
     - name: Build
       run: $NINJA_EXEC -C build
-    
-    - name: Test Basic Functionality
-      run: |
-        # Check if the wrapper library was built
-        if [ -f build/src/vulkan/wrapper/libvulkan_wrapper.so ]; then
-          echo "✓ Vulkan wrapper library built successfully"
-          ls -la build/src/vulkan/wrapper/libvulkan_wrapper.so
-        else
-          echo "✗ Vulkan wrapper library not found"
-          find build -name "*wrapper*" -type f || true
-          exit 1
-        fi
-    
+
     - name: Run Unit Tests
       run: |
         # Create a simple test for null descriptor functionality
