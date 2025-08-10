@@ -854,10 +854,11 @@ endif
 pre_args += '-DGLAPI_EXPORT_PROTO_ENTRY_POINTS=@0@'.format(with_glapi_export_proto_entry_points.to_int())
 
 with_android_stub = get_option('android-stub')
-with_wrapper_wsi = get_option('wrapper-wsi')
+with_wrapper_wsi_option = get_option('wrapper-wsi')
 
 # Automatically enable wrapper WSI when building wrapper driver for Android
-if with_wrapper_vk and with_platform_android and not with_wrapper_wsi
+with_wrapper_wsi = with_wrapper_wsi_option
+if with_wrapper_vk and with_platform_android and not with_wrapper_wsi_option
   with_wrapper_wsi = true
   message('Automatically enabling wrapper-wsi for Android platform')
 endif
