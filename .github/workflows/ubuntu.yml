@@ -134,16 +134,16 @@ jobs:
           -Dbuild-tests=false \
           -Dvulkan-drivers=wrapper \
           -Dplatforms=android \
+          -Dplatform-sdk-version=30 \
+          -Dallow-fallback-for=libdrm \
           -Dgallium-drivers= \
           -Dopengl=false \
           -Degl=disabled \
           -Dgbm=disabled \
           -Dgles1=disabled \
           -Dgles2=disabled \
-          -Dandroid-stub=false \
           -Dglx=disabled \
-          -Dshared-glapi=disabled \
-          -Dplatform-sdk-version=30
+          -Dshared-glapi=disabled
     
     - name: Build
       run: |
