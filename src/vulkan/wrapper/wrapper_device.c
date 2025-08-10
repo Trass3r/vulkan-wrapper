@@ -22,7 +22,7 @@ const struct vk_device_extension_table wrapper_device_extensions =
    .KHR_present_id = true,
    .KHR_present_wait = true,
    .KHR_incremental_present = true,
-   .KHR_robustness2 = true,  /* Emulated when not natively supported */
+   .EXT_robustness2 = true,  /* Emulated when not natively supported */
 };
 
 const struct vk_device_extension_table wrapper_filter_extensions =

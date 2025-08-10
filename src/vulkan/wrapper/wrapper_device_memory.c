@@ -4,9 +4,12 @@
 #include "util/os_file.h"
 #include "vk_util.h"
 
+#include <sys/mman.h>
+#include <unistd.h>
+
+#ifdef __ANDROID__
 #include <android/hardware_buffer.h>
 #include <vndk/hardware_buffer.h>
-#include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <linux/dma-heap.h>
 
@@ -59,6 +62,7 @@ ion_heap_alloc(int heap_fd, size_t size) {
 static int
 wrapper_dmabuf_alloc(struct wrapper_device *device, size_t size)
 {
+#ifdef __ANDROID__
    int fd;
 
    fd = dma_heap_alloc(device->physical->dma_heap_fd, size);
@@ -67,8 +71,11 @@ wrapper_dmabuf_alloc(struct wrapper_device *device, size_t size)
       fd = ion_heap_alloc(device->physical->dma_heap_fd, size);
 
    return fd;
+#else
+   return -1; /* Not supported on non-Android platforms */
+#endif
 }
-
+#endif /* __ANDROID__ */
 
 uint32_t
 wrapper_select_device_memory_type(struct wrapper_device *device,
@@ -91,6 +98,7 @@ wrapper_allocate_memory_dmaheap(struct wrapper_device *device,
                                 const VkAllocationCallbacks* pAllocator,
                                 VkDeviceMemory* pMemory,
                                 int *out_fd) {
+#ifdef __ANDROID__
    VkImportMemoryFdInfoKHR import_fd_info;
    VkMemoryAllocateInfo allocate_info;
    VkResult result;
@@ -133,6 +141,11 @@ wrapper_allocate_memory_dmaheap(struct wrapper_device *device,
       close(import_fd_info.fd);
 
    return result;
+#else
+   /* Not supported on non-Android platforms */
+   *out_fd = -1;
+   return VK_ERROR_EXTENSION_NOT_PRESENT;
+#endif
 }
 
 static VkResult
@@ -186,7 +199,8 @@ wrapper_allocate_memory_ahardware_buffer(struct wrapper_device *device,
                                          const VkMemoryAllocateInfo* pAllocateInfo,
                                          const VkAllocationCallbacks* pAllocator,
                                          VkDeviceMemory* pMemory,
-                                         AHardwareBuffer **pAHardwareBuffer) {
+                                         void **pAHardwareBuffer) {
+#ifdef __ANDROID__
    VkExportMemoryAllocateInfo export_memory_info;
    VkMemoryAllocateInfo allocate_info;
    VkResult result;
@@ -214,24 +228,30 @@ wrapper_allocate_memory_ahardware_buffer(struct wrapper_device *device,
             VK_STRUCTURE_TYPE_MEMORY_GET_ANDROID_HARDWARE_BUFFER_INFO_ANDROID,
          .memory = *pMemory,
       },
-      pAHardwareBuffer);
+      (struct AHardwareBuffer**)pAHardwareBuffer);
 
    if (result != VK_SUCCESS)
       return result;
    
-   if (AHardwareBuffer_getNativeHandle(*pAHardwareBuffer) == NULL)
+   if (AHardwareBuffer_getNativeHandle(*(struct AHardwareBuffer**)pAHardwareBuffer) == NULL)
       return VK_ERROR_INVALID_EXTERNAL_HANDLE;
 
    return VK_SUCCESS;
+#else
+   /* Not supported on non-Android platforms */
+   return VK_ERROR_EXTENSION_NOT_PRESENT;
+#endif
 }
 
 static void
 wrapper_device_memory_reset(struct wrapper_device_memory *mem) {
    struct wrapper_device *device = mem->device;
+#ifdef __ANDROID__
    if (mem->ahardware_buffer) {
       AHardwareBuffer_release(mem->ahardware_buffer);
       mem->ahardware_buffer = NULL;
    }
+#endif
    if (mem->dmabuf_fd != -1) {
       close(mem->dmabuf_fd);
       mem->dmabuf_fd = -1;
@@ -339,7 +359,13 @@ wrapper_AllocateMemory(VkDevice _device,
    if (result != VK_SUCCESS) {
       wrapper_device_memory_reset(mem);
       result = wrapper_allocate_memory_ahardware_buffer(device,
-         pAllocateInfo, pAllocator, &mem->dispatch_handle, &mem->ahardware_buffer);
+         pAllocateInfo, pAllocator, &mem->dispatch_handle, 
+#ifdef __ANDROID__
+         (void**)&mem->ahardware_buffer
+#else
+         NULL
+#endif
+         );
    }
 
    if (result != VK_SUCCESS) {
@@ -405,8 +431,13 @@ wrapper_MapMemory2KHR(VkDevice _device,
          return VK_SUCCESS;
       }
    }
-   assert(mem->dmabuf_fd >= 0 || mem->ahardware_buffer != NULL);
+   assert(mem->dmabuf_fd >= 0 
+#ifdef __ANDROID__
+          || mem->ahardware_buffer != NULL
+#endif
+          );
 
+#ifdef __ANDROID__
    if (mem->ahardware_buffer) {
       const native_handle_t *handle;
       const int *handle_fds;
@@ -426,6 +457,9 @@ wrapper_MapMemory2KHR(VkDevice _device,
    } else {
       fd = mem->dmabuf_fd;
    }
+#else
+   fd = mem->dmabuf_fd;
+#endif
 
    if (pMemoryMapInfo->size == VK_WHOLE_SIZE)
       mem->map_size = mem->alloc_size > 0 ?

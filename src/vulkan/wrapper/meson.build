@@ -77,8 +77,12 @@ wrapper_deps = [
   idep_vulkan_lite_runtime,
   idep_vulkan_util,
   idep_vulkan_wsi,
-  #dep_android,
 ]
+
+# Add Android dependencies only when wrapper WSI is enabled and targeting Android
+if with_wrapper_wsi and with_android_stub and with_platform_android
+  wrapper_deps += dep_android
+endif
 
 libvulkan_wrapper = shared_library(
   'vulkan_wrapper',

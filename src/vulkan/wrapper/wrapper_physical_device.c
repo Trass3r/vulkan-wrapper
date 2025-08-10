@@ -10,6 +10,9 @@
 #include "wsi_common.h"
 #include "util/os_misc.h"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 static bool
 wrapper_has_extension(VkExtensionProperties *extensions, uint32_t count, const char *name)
 {
@@ -31,12 +34,12 @@ wrapper_check_robustness2_emulation(struct wrapper_physical_device *physical_dev
       physical_device->dispatch_handle, NULL, &extension_count, device_extensions);
    
    bool has_native_robustness2 = (result == VK_SUCCESS) &&
-      wrapper_has_extension(device_extensions, extension_count, VK_KHR_ROBUSTNESS_2_EXTENSION_NAME);
+      wrapper_has_extension(device_extensions, extension_count, VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
    
    if (has_native_robustness2) {
       /* Check if nullDescriptor feature is supported */
-      VkPhysicalDeviceRobustness2FeaturesKHR robustness2_features = {
-         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_KHR,
+      VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features = {
+         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT,
          .pNext = NULL,
       };
       
@@ -99,7 +102,7 @@ wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
    /* Handle robustness2 emulation */
    if (pdevice->robustness2_emulated) {
       /* We advertise KHR_robustness2 even though it's not natively supported */
-      exts->KHR_robustness2 = true;
+      exts->EXT_robustness2 = true;
    }
 
    return VK_SUCCESS;
@@ -239,9 +242,11 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
          supported_features->globalPriorityQuery = false;
       }
 
+#ifdef __ANDROID__
       pdevice->dma_heap_fd = open("/dev/dma_heap/system", O_RDONLY);
       if (pdevice->dma_heap_fd < 0)
          pdevice->dma_heap_fd = open("/dev/ion", O_RDONLY);
+#endif
 
       list_addtail(&pdevice->vk.link, &_instance->physical_devices.list);
    }
@@ -252,8 +257,10 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
 void destroy_physical_device(struct vk_physical_device *pdevice) {
    VK_FROM_HANDLE(wrapper_physical_device, wpdevice,
                   vk_physical_device_to_handle(pdevice));
+#ifdef __ANDROID__
    if (wpdevice->dma_heap_fd != -1)
       close(wpdevice->dma_heap_fd);
+#endif
    wsi_device_finish(pdevice->wsi_device, &pdevice->instance->alloc);
    vk_physical_device_finish(pdevice);
    vk_free(&pdevice->instance->alloc, pdevice);
@@ -289,10 +296,10 @@ wrapper_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
    if (pdevice->null_descriptors_emulated) {
       vk_foreach_struct(ext, pFeatures->pNext) {
          switch (ext->sType) {
-         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_KHR:
+         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT:
          {
-            VkPhysicalDeviceRobustness2FeaturesKHR *robustness2_features =
-               (VkPhysicalDeviceRobustness2FeaturesKHR *)ext;
+            VkPhysicalDeviceRobustness2FeaturesEXT *robustness2_features =
+               (VkPhysicalDeviceRobustness2FeaturesEXT *)ext;
             /* Advertise nullDescriptor as supported through emulation */
             robustness2_features->nullDescriptor = VK_TRUE;
             break;

@@ -867,8 +867,11 @@ endif
 pre_args += '-DGLAPI_EXPORT_PROTO_ENTRY_POINTS=@0@'.format(with_glapi_export_proto_entry_points.to_int())
 
 with_android_stub = get_option('android-stub')
-if with_wrapper_vk
-  #with_android_stub = true
+with_wrapper_wsi = get_option('wrapper-wsi')
+
+# Enable Android stub automatically when wrapper WSI is enabled and targeting Android
+if with_wrapper_vk and with_wrapper_wsi and with_platform_android
+  with_android_stub = true
 endif
 
 with_libbacktrace = get_option('android-libbacktrace') \

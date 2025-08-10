@@ -9,8 +9,8 @@ if dep_libdrm.found()
   files_vulkan_wsi += files('wsi_common_drm.c')
 endif
 
-if with_wrapper_vk
-  #files_vulkan_wsi += files('wsi_common_ahardware_buffer.c')
+if with_wrapper_vk and with_wrapper_wsi
+  files_vulkan_wsi += files('wsi_common_ahardware_buffer.c')
 endif
 
 if with_platform_x11

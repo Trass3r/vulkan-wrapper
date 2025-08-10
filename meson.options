@@ -229,6 +229,14 @@ option(
                 'will be built'
 )
 
+option(
+  'wrapper-wsi',
+  type : 'boolean',
+  value : false,
+  description : 'Enable Android Hardware Buffer WSI support in the vulkan wrapper. ' +
+                'Required for Android targets, optional for desktop testing.'
+)
+
 # Note that currently turnip supports msm and kgsl, while the gallium driver
 # support msm and virtio.  This is a temporary situation with virtio support
 # for turnip and kgsl support for gallium planned/in-progress.
