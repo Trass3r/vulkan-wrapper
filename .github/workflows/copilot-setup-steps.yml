@@ -1,0 +1,136 @@
+name: Copilot Setup Steps
+on:
+  workflow_dispatch:
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install System Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential \
+            pkg-config \
+            python3-pip \
+            python3-setuptools \
+            python3-mako \
+            python3-ply \
+            meson \
+            ninja-build \
+            bison \
+            flex \
+            libdrm-dev \
+            libudev-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxcb-dri2-0-dev \
+            libxcb-dri3-dev \
+            libxcb-present-dev \
+            libxcb-sync-dev \
+            libxshmfence-dev \
+            libxxf86vm-dev \
+            libxrandr-dev \
+            libxfixes-dev \
+            libxdamage-dev \
+            libxext-dev \
+            libwayland-dev \
+            wayland-protocols \
+            libwayland-egl-backend-dev \
+            vulkan-tools \
+            vulkan-utility-libraries-dev \
+            libvulkan-dev \
+            git \
+            cmake \
+            wget \
+            unzip \
+            openjdk-11-jdk
+
+      - name: Install Python Dependencies
+        run: |
+          pip3 install --user mako ply
+
+      - name: Setup Android NDK
+        run: |
+          # Download and install Android NDK
+          cd /opt
+          sudo wget -q https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+          sudo unzip -q android-ndk-r26d-linux.zip
+          sudo rm android-ndk-r26d-linux.zip
+          sudo mv android-ndk-r26d android-ndk
+          echo "export ANDROID_NDK_ROOT=/opt/android-ndk" | sudo tee -a /etc/environment
+          echo "export PATH=\$PATH:/opt/android-ndk" | sudo tee -a /etc/environment
+
+      - name: Setup Android SDK (minimal)
+        run: |
+          # Install minimal Android SDK for platform tools
+          cd /opt
+          sudo wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          sudo unzip -q commandlinetools-linux-11076708_latest.zip
+          sudo rm commandlinetools-linux-11076708_latest.zip
+          sudo mkdir -p android-sdk/cmdline-tools
+          sudo mv cmdline-tools android-sdk/cmdline-tools/latest
+          echo "export ANDROID_HOME=/opt/android-sdk" | sudo tee -a /etc/environment
+          echo "export PATH=\$PATH:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools" | sudo tee -a /etc/environment
+
+      - name: Setup Vulkan CTS Dependencies
+        run: |
+          # Install dependencies for Vulkan CTS
+          sudo apt install -y \
+            python3-lxml \
+            python3-pil \
+            libjpeg-dev \
+            libpng-dev \
+            libtiff-dev \
+            libgif-dev
+
+      - name: Create Cross-compilation Toolchain Files
+        run: |
+          # Create meson cross-compilation file for Android
+          sudo mkdir -p /opt/cross-files
+          sudo tee /opt/cross-files/android-aarch64.txt > /dev/null << 'EOF'
+          [binaries]
+          c = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang'
+          cpp = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang++'
+          ar = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+          strip = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+          pkgconfig = 'false'
+
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'aarch64'
+          endian = 'little'
+
+          [properties]
+          sys_root = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot'
+          EOF
+
+          sudo tee /opt/cross-files/android-x86_64.txt > /dev/null << 'EOF'
+          [binaries]
+          c = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android30-clang'
+          cpp = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android30-clang++'
+          ar = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+          strip = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+          pkgconfig = 'false'
+
+          [host_machine]
+          system = 'android'
+          cpu_family = 'x86_64'
+          cpu = 'x86_64'
+          endian = 'little'
+
+          [properties]
+          sys_root = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot'
+          EOF
+
+      - name: Verify Installation
+        run: |
+          echo "=== Verification ==="
+          echo "Meson version: $(meson --version)"
+          echo "Ninja version: $(ninja --version)"
+          echo "Python version: $(python3 --version)"
+          echo "Android NDK: $([[ -d /opt/android-ndk ]] && echo 'Installed' || echo 'Missing')"
+          echo "Android SDK: $([[ -d /opt/android-sdk ]] && echo 'Installed' || echo 'Missing')"
+          echo "Cross-compilation files: $([[ -f /opt/cross-files/android-aarch64.txt ]] && echo 'Ready' || echo 'Missing')"
+          ls -la /opt/ | grep -E "(android|cross-files)" || true
