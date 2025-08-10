@@ -94,7 +94,7 @@ jobs:
           cpp = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang++'
           ar = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
           strip = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
-          pkgconfig = 'false'
+          pkgconfig = '/bin/false'
 
           [host_machine]
           system = 'android'
@@ -104,6 +104,7 @@ jobs:
 
           [properties]
           sys_root = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot'
+          needs_exe_wrapper = true
           EOF
 
           sudo tee /opt/cross-files/android-x86_64.txt > /dev/null << 'EOF'
@@ -112,7 +113,7 @@ jobs:
           cpp = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android30-clang++'
           ar = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
           strip = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
-          pkgconfig = 'false'
+          pkgconfig = '/bin/false'
 
           [host_machine]
           system = 'android'
@@ -122,6 +123,7 @@ jobs:
 
           [properties]
           sys_root = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot'
+          needs_exe_wrapper = true
           EOF
 
       - name: Verify Installation
