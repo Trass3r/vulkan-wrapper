@@ -10,6 +10,7 @@ permissions:
 jobs:
   Ubuntu-CI:
     strategy:
+      fail-fast: false
       matrix:
         compiler: ['gcc', 'clang']
         build_type: ['debug', 'release']
