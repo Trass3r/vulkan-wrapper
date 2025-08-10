@@ -30,7 +30,9 @@ VK_DEFINE_HANDLE_CASTS(wrapper_instance, vk.base, VkInstance,
 struct wrapper_physical_device {
    struct vk_physical_device vk;
 
+#ifdef __ANDROID__
    int dma_heap_fd;
+#endif
    bool enable_map_memory_placed;
    bool enable_bc;
    bool robustness2_emulated;
@@ -95,7 +97,9 @@ VK_DEFINE_HANDLE_CASTS(wrapper_command_buffer, vk.base, VkCommandBuffer,
                        VK_OBJECT_TYPE_COMMAND_BUFFER)
 
 struct wrapper_device_memory {
+#ifdef __ANDROID__
    struct AHardwareBuffer *ahardware_buffer;
+#endif
    struct wrapper_device *device;
    struct list_head link;
    int dmabuf_fd;

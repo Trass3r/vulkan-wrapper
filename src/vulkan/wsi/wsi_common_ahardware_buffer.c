@@ -1,3 +1,4 @@
+#ifdef __ANDROID__
 #include "wsi_common.h"
 #include "wsi_common_private.h"
 #include "vk_log.h"
@@ -370,4 +371,29 @@ wsi_configure_ahardware_buffer_image(
 
    return VK_SUCCESS;
 }
+#else
+/* Stub implementation for non-Android platforms */
+#include "wsi_common.h"
+#include "wsi_common_private.h"
+
+enum wsi_swapchain_blit_type
+wsi_get_ahardware_buffer_blit_type(const struct wsi_device *wsi,
+                      const struct wsi_base_image_params *params,
+                                   VkDevice device)
+{
+   /* Not supported on non-Android platforms */
+   return WSI_SWAPCHAIN_NO_IMAGE_BLIT;
+}
+
+VkResult
+wsi_configure_ahardware_buffer_image(
+   const struct wsi_swapchain *chain,
+   const VkSwapchainCreateInfoKHR *pCreateInfo,
+   const struct wsi_base_image_params *params,
+   struct wsi_image_info *info)
+{
+   /* Not supported on non-Android platforms */
+   return VK_ERROR_FEATURE_NOT_PRESENT;
+}
+#endif /* __ANDROID__ */
 
