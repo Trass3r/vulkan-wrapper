@@ -64,6 +64,7 @@ jobs:
           vulkan-tools \
           vulkan-utility-libraries-dev \
           libvulkan-dev \
+          mesa-common-dev \
           git \
           cmake \
           wget \
@@ -90,7 +91,7 @@ jobs:
         cpp = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang++'
         ar = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
         strip = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
-        pkgconfig = 'false'
+        pkgconfig = '/bin/false'
 
         [host_machine]
         system = 'android'
@@ -100,6 +101,7 @@ jobs:
 
         [properties]
         sys_root = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot'
+        needs_exe_wrapper = true
         EOF
     
     - name: Configure Build (Desktop)
@@ -132,14 +134,16 @@ jobs:
           -Dbuild-tests=false \
           -Dvulkan-drivers=wrapper \
           -Dplatforms=android \
+          -Dplatform-sdk-version=30 \
+          -Dallow-fallback-for=libdrm \
           -Dgallium-drivers= \
           -Dopengl=false \
           -Degl=disabled \
           -Dgbm=disabled \
           -Dgles1=disabled \
           -Dgles2=disabled \
-          -Dandroid-stub=false \
-          -Dplatform-sdk-version=30
+          -Dglx=disabled \
+          -Dshared-glapi=disabled
 
     - name: Build
       run: |
