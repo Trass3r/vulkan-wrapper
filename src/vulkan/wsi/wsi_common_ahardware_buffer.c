@@ -382,7 +382,7 @@ wsi_get_ahardware_buffer_blit_type(const struct wsi_device *wsi,
                                    VkDevice device)
 {
    /* Not supported on non-Android platforms */
-   return WSI_SWAPCHAIN_NO_IMAGE_BLIT;
+   return WSI_SWAPCHAIN_NO_BLIT;
 }
 
 VkResult

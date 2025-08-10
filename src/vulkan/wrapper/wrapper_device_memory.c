@@ -4,10 +4,12 @@
 #include "util/os_file.h"
 #include "vk_util.h"
 
+#include <sys/mman.h>
+#include <unistd.h>
+
 #ifdef __ANDROID__
 #include <android/hardware_buffer.h>
 #include <vndk/hardware_buffer.h>
-#include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <linux/dma-heap.h>
 
@@ -96,6 +98,7 @@ wrapper_allocate_memory_dmaheap(struct wrapper_device *device,
                                 const VkAllocationCallbacks* pAllocator,
                                 VkDeviceMemory* pMemory,
                                 int *out_fd) {
+#ifdef __ANDROID__
    VkImportMemoryFdInfoKHR import_fd_info;
    VkMemoryAllocateInfo allocate_info;
    VkResult result;
@@ -138,6 +141,11 @@ wrapper_allocate_memory_dmaheap(struct wrapper_device *device,
       close(import_fd_info.fd);
 
    return result;
+#else
+   /* Not supported on non-Android platforms */
+   *out_fd = -1;
+   return VK_ERROR_EXTENSION_NOT_PRESENT;
+#endif
 }
 
 static VkResult
