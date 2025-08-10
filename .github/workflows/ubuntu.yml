@@ -64,6 +64,8 @@ jobs:
           vulkan-tools \
           vulkan-utility-libraries-dev \
           libvulkan-dev \
+          mesa-common-dev \
+          libdrm \
           git \
           cmake \
           wget \
