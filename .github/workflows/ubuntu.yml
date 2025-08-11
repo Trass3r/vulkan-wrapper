@@ -21,7 +21,7 @@ jobs:
             compiler: 'clang'
           - platform: 'android'
             build_type: 'release'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     env:
       CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
       CXX: ${{ matrix.compiler == 'clang' && 'clang++' || 'g++' }}
@@ -32,6 +32,8 @@ jobs:
     
     - name: Install Base Dependencies
       run: |
+        sudo rm -f /etc/apt/sources.list.d/azure-cli.*
+        sudo sed -i "s/$(lsb_release -cs)/plucky/g; s/$(lsb_release -rs)/25.04/g" /etc/apt/sources.list.d/*
         sudo apt update
         sudo apt install -y \
           build-essential \
