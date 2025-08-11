@@ -67,6 +67,7 @@ jobs:
           vulkan-utility-libraries-dev \
           libvulkan-dev \
           mesa-common-dev \
+          xvfb \
           git \
           cmake \
           wget \
@@ -88,11 +89,13 @@ jobs:
         # Create cross-compilation files
         sudo mkdir -p /opt/cross-files
         sudo tee /opt/cross-files/android-aarch64.txt > /dev/null << 'EOF'
+        [constants]
+        ndk_path = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin'
         [binaries]
-        c = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang'
-        cpp = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang++'
-        ar = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
-        strip = '/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+        c = ndk_path / 'aarch64-linux-android30-clang'
+        cpp = [ ndk_path / 'aarch64-linux-android30-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '--start-no-unused-arguments', '-static-libstdc++', '--end-no-unused-arguments', '-D__TERMUX__']
+        ar = ndk_path / 'llvm-ar'
+        strip = ndk_path / 'llvm-strip'
         pkgconfig = '/bin/false'
 
         [host_machine]
@@ -150,6 +153,8 @@ jobs:
     - name: Build
       run: |
         ninja -C build
+        Xvfb :99 -screen 0 1280x720x24 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
         if [ "${{ matrix.platform }}" = "desktop" ]; then
           meson test -C build
         fi
