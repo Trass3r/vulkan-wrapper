@@ -67,7 +67,6 @@ jobs:
           vulkan-utility-libraries-dev \
           libvulkan-dev \
           mesa-common-dev \
-          xvfb \
           git \
           cmake \
           wget \
@@ -153,6 +152,9 @@ jobs:
     - name: Build
       run: |
         ninja -C build
+    - name: Tests
+      run: |
+        sudo apt install -y xvfb edid-decode
         Xvfb :99 -screen 0 1280x720x24 &
         echo "DISPLAY=:99" >> $GITHUB_ENV
         if [ "${{ matrix.platform }}" = "desktop" ]; then
