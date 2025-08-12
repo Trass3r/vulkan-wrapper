@@ -6,3 +6,6 @@
 *.out
 /build
 .venv/
+
+# Accidentally created files from pip installs
+=*
