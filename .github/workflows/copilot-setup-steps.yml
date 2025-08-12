@@ -14,9 +14,6 @@ jobs:
             pkg-config \
             python3-pip \
             python3-setuptools \
-            python3-mako \
-            python3-ply \
-            meson \
             ninja-build \
             bison \
             flex \
@@ -45,6 +42,7 @@ jobs:
             wget \
             unzip \
             openjdk-11-jdk
+          pip3 install --user --upgrade meson mako ply
 
       - name: Setup Android NDK
         run: |
@@ -61,9 +59,9 @@ jobs:
         run: |
           # Install minimal Android SDK for platform tools
           cd /opt
-          sudo wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          sudo unzip -q commandlinetools-linux-11076708_latest.zip
-          sudo rm commandlinetools-linux-11076708_latest.zip
+          sudo wget -q https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+          sudo unzip -q commandlinetools-*.zip
+          sudo rm commandlinetools-linux-*.zip
           sudo mkdir -p android-sdk/cmdline-tools
           sudo mv cmdline-tools android-sdk/cmdline-tools/latest
           echo "ANDROID_HOME=/opt/android-sdk" >> $GITHUB_ENV
@@ -131,6 +129,6 @@ jobs:
           echo "Python version: $(python3 --version)"
           echo "Android NDK: $([[ -d /opt/android-ndk ]] && echo 'Installed' || echo 'Missing')"
           echo "Android SDK: $([[ -d /opt/android-sdk ]] && echo 'Installed' || echo 'Missing')"
-          adb --version
+          sdkmanager --version
           echo "Cross-compilation files: $([[ -f /opt/cross-files/android-aarch64.txt ]] && echo 'Ready' || echo 'Missing')"
           ls -la /opt/ | grep -E "(android|cross-files)" || true
