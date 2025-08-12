@@ -189,7 +189,7 @@ jobs:
         make -j$(nproc) deqp-vk
 
         echo "=== Vulkan CTS Built Successfully ==="
-        ls -la external/vulkancts/modules/vulkan/ || ls -la modules/vulkan/ || echo "Checking for deqp-vk executable..."
+        echo "Checking for deqp-vk executable..."
         find . -name "deqp-vk" -type f
 
     - name: Run Vulkan CTS Subset (Desktop only)
