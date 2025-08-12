@@ -189,7 +189,8 @@ jobs:
         make -j$(nproc) deqp-vk
 
         echo "=== Vulkan CTS Built Successfully ==="
-        ls -la modules/vulkan/
+        ls -la external/vulkancts/modules/vulkan/ || ls -la modules/vulkan/ || echo "Checking for deqp-vk executable..."
+        find . -name "deqp-vk" -type f
 
     - name: Run Vulkan CTS Subset (Desktop only)
       if: matrix.platform == 'desktop' && matrix.build_type == 'debug' && matrix.compiler == 'gcc'
@@ -209,11 +210,17 @@ jobs:
         EOF
 
         # Run CTS with our test list (timeout after 5 minutes)
-        timeout 300 ./modules/vulkan/deqp-vk \
-          --deqp-caselist-file=/tmp/wrapper_tests.txt \
-          --deqp-log-images=disable \
-          --deqp-log-shader-sources=disable \
-          --deqp-log-filename=/tmp/cts_results.qpa || echo "CTS run completed (may have timed out)"
+        DEQP_VK_EXECUTABLE=$(find . -name "deqp-vk" -type f | head -1)
+        if [ -n "$DEQP_VK_EXECUTABLE" ]; then
+          timeout 300 "$DEQP_VK_EXECUTABLE" \
+            --deqp-caselist-file=/tmp/wrapper_tests.txt \
+            --deqp-log-images=disable \
+            --deqp-log-shader-sources=disable \
+            --deqp-log-filename=/tmp/cts_results.qpa || echo "CTS run completed (may have timed out)"
+        else
+          echo "ERROR: deqp-vk executable not found"
+          exit 1
+        fi
 
         # Check results
         if [ -f /tmp/cts_results.qpa ]; then
