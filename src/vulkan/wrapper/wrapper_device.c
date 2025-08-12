@@ -23,7 +23,7 @@ const struct vk_device_extension_table wrapper_device_extensions =
    .KHR_present_wait = true,
    .KHR_incremental_present = true,
    .EXT_robustness2 = true,  /* Emulated when not natively supported */
-   .EXT_descriptor_buffer = false,  /* TODO: Enable when fully implemented */
+   .EXT_descriptor_buffer = true,  /* Enabled - null descriptor emulation implemented */
 };
 
 const struct vk_device_extension_table wrapper_filter_extensions =
@@ -1095,11 +1095,101 @@ wrapper_GetDescriptorEXT(VkDevice _device,
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
    
-   /* TODO: Implement null descriptor emulation for descriptor buffers
-    * This would require substituting null handles in pDescriptorInfo before 
-    * calling the driver and potentially modifying the returned descriptor data */
+   if (!device->null_descriptors_enabled) {
+      device->dispatch_table.GetDescriptorEXT(device->dispatch_handle,
+                                             pDescriptorInfo, dataSize, pDescriptor);
+      return;
+   }
+
+   /* Create a copy of the descriptor info for null handle substitution */
+   VkDescriptorGetInfoEXT modified_info = *pDescriptorInfo;
+   VkDescriptorImageInfo modified_image_info;
+   VkDescriptorAddressInfoEXT modified_address_info;
+   
+   bool need_substitution = false;
+   
+   /* Check and substitute null handles based on descriptor type */
+   switch (pDescriptorInfo->type) {
+      case VK_DESCRIPTOR_TYPE_SAMPLER:
+         if (pDescriptorInfo->data.pSampler && *pDescriptorInfo->data.pSampler == VK_NULL_HANDLE) {
+            modified_info.data.pSampler = &device->dummy_sampler;
+            need_substitution = true;
+         }
+         break;
+         
+      case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+         if (pDescriptorInfo->data.pCombinedImageSampler) {
+            modified_image_info = *pDescriptorInfo->data.pCombinedImageSampler;
+            if (modified_image_info.imageView == VK_NULL_HANDLE) {
+               modified_image_info.imageView = device->dummy_image_view_2d;
+               need_substitution = true;
+            }
+            if (modified_image_info.sampler == VK_NULL_HANDLE) {
+               modified_image_info.sampler = device->dummy_sampler;
+               need_substitution = true;
+            }
+            if (need_substitution) {
+               modified_info.data.pCombinedImageSampler = &modified_image_info;
+            }
+         }
+         break;
+         
+      case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+      case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+      case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
+         if (pDescriptorInfo->data.pSampledImage && 
+             pDescriptorInfo->data.pSampledImage->imageView == VK_NULL_HANDLE) {
+            modified_image_info = *pDescriptorInfo->data.pSampledImage;
+            modified_image_info.imageView = device->dummy_image_view_2d;
+            modified_info.data.pSampledImage = &modified_image_info;
+            need_substitution = true;
+         }
+         break;
+         
+      case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+      case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+         if (pDescriptorInfo->data.pUniformBuffer && 
+             pDescriptorInfo->data.pUniformBuffer->address == 0) {
+            modified_address_info = *pDescriptorInfo->data.pUniformBuffer;
+            /* Get dummy buffer address for null buffer substitution */
+            VkBufferDeviceAddressInfo addr_info = {
+               .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+               .buffer = device->dummy_buffer
+            };
+            modified_address_info.address = device->dispatch_table.GetBufferDeviceAddress(
+               device->dispatch_handle, &addr_info);
+            modified_address_info.range = VK_WHOLE_SIZE;
+            modified_info.data.pUniformBuffer = &modified_address_info;
+            need_substitution = true;
+         }
+         break;
+         
+      case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+      case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
+         if (pDescriptorInfo->data.pUniformTexelBuffer && 
+             pDescriptorInfo->data.pUniformTexelBuffer->address == 0) {
+            modified_address_info = *pDescriptorInfo->data.pUniformTexelBuffer;
+            /* Get dummy buffer address for null texel buffer substitution */
+            VkBufferDeviceAddressInfo addr_info = {
+               .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+               .buffer = device->dummy_buffer
+            };
+            modified_address_info.address = device->dispatch_table.GetBufferDeviceAddress(
+               device->dispatch_handle, &addr_info);
+            modified_address_info.range = VK_WHOLE_SIZE;
+            modified_info.data.pUniformTexelBuffer = &modified_address_info;
+            need_substitution = true;
+         }
+         break;
+         
+      default:
+         /* For other descriptor types (e.g., acceleration structures), pass through */
+         break;
+   }
+   
+   /* Call the driver with potentially modified descriptor info */
    device->dispatch_table.GetDescriptorEXT(device->dispatch_handle,
-                                          pDescriptorInfo, dataSize, pDescriptor);
+                                          &modified_info, dataSize, pDescriptor);
 }
 
 /* Template management functions */

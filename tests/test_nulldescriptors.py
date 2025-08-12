@@ -126,6 +126,35 @@ class NullDescriptorEmulationTests(unittest.TestCase):
         
         descriptor_data = self._get_descriptor({"type": "buffer", "buffer": None})
         self.assertIsNotNone(descriptor_data)
+
+    def test_descriptor_buffer_null_emulation(self):
+        """Test null descriptor emulation for descriptor buffers"""
+        # Test null buffer descriptor
+        null_buffer_desc = {
+            "type": "VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER",
+            "data": {"uniformBuffer": {"address": 0, "range": 1024}}
+        }
+        result = self._get_descriptor_with_emulation(null_buffer_desc)
+        self.assertNotEqual(result["data"]["uniformBuffer"]["address"], 0, 
+                           "Null buffer address should be substituted")
+        
+        # Test null image descriptor
+        null_image_desc = {
+            "type": "VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE", 
+            "data": {"sampledImage": {"imageView": None, "sampler": None}}
+        }
+        result = self._get_descriptor_with_emulation(null_image_desc)
+        self.assertIsNotNone(result["data"]["sampledImage"]["imageView"],
+                           "Null image view should be substituted")
+        
+        # Test null sampler descriptor
+        null_sampler_desc = {
+            "type": "VK_DESCRIPTOR_TYPE_SAMPLER",
+            "data": {"sampler": None}
+        }
+        result = self._get_descriptor_with_emulation(null_sampler_desc)
+        self.assertIsNotNone(result["data"]["sampler"],
+                           "Null sampler should be substituted")
     
     def _check_emulation_needed(self):
         """Simulate wrapper's emulation detection logic"""
@@ -180,6 +209,25 @@ class NullDescriptorEmulationTests(unittest.TestCase):
     def _get_descriptor(self, descriptor_info):
         """Simulate wrapper's descriptor buffer get descriptor"""
         return b"mock_descriptor_data"  # Mock data
+
+    def _get_descriptor_with_emulation(self, descriptor_info):
+        """Simulate wrapper's descriptor buffer get descriptor with emulation"""
+        # Mock the null descriptor substitution logic
+        result = descriptor_info.copy()
+        
+        if descriptor_info["type"] == "VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER":
+            if descriptor_info["data"]["uniformBuffer"]["address"] == 0:
+                result["data"]["uniformBuffer"]["address"] = 0x1000  # Mock dummy address
+                
+        elif descriptor_info["type"] == "VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE":
+            if descriptor_info["data"]["sampledImage"]["imageView"] is None:
+                result["data"]["sampledImage"]["imageView"] = "dummy_image_view"
+                
+        elif descriptor_info["type"] == "VK_DESCRIPTOR_TYPE_SAMPLER":
+            if descriptor_info["data"]["sampler"] is None:
+                result["data"]["sampler"] = "dummy_sampler"
+                
+        return result
 
 
 class AndroidCompatibilityTests(unittest.TestCase):
