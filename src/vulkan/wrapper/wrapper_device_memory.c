@@ -6,6 +6,7 @@
 
 #include <sys/mman.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #ifdef __ANDROID__
 #include <android/hardware_buffer.h>
