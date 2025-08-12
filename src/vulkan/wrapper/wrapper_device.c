@@ -228,8 +228,14 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    /* Setup null descriptor emulation if needed */
    device->null_descriptors_enabled = physical_device->null_descriptors_emulated;
    if (device->null_descriptors_enabled) {
+      /* Initialize template cache */
+      simple_mtx_init(&device->template_cache_mutex, mtx_plain);
+      device->template_cache = _mesa_hash_table_create(NULL, _mesa_hash_pointer, _mesa_key_pointer_equal);
+      
       result = wrapper_create_dummy_resources(device);
       if (result != VK_SUCCESS) {
+         simple_mtx_destroy(&device->template_cache_mutex);
+         _mesa_hash_table_destroy(device->template_cache, NULL);
          wrapper_DestroyDevice(wrapper_device_to_handle(device),
                                &device->vk.alloc);
          return vk_error(physical_device, result);
@@ -240,6 +246,10 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
          wrapper_UpdateDescriptorSets;
       device->vk.dispatch_table.UpdateDescriptorSetWithTemplate =
          wrapper_UpdateDescriptorSetWithTemplate;
+      device->vk.dispatch_table.CreateDescriptorUpdateTemplate =
+         wrapper_CreateDescriptorUpdateTemplate;
+      device->vk.dispatch_table.DestroyDescriptorUpdateTemplate =
+         wrapper_DestroyDescriptorUpdateTemplate;
    }
 
    *pDevice = wrapper_device_to_handle(device);
@@ -496,6 +506,17 @@ wrapper_DestroyDevice(VkDevice _device, const VkAllocationCallbacks* pAllocator)
 
    /* Clean up null descriptor emulation resources */
    if (device->null_descriptors_enabled) {
+      /* Clean up template cache */
+      simple_mtx_lock(&device->template_cache_mutex);
+      if (device->template_cache) {
+         hash_table_foreach(device->template_cache, entry) {
+            free(entry->data);
+         }
+         _mesa_hash_table_destroy(device->template_cache, NULL);
+      }
+      simple_mtx_unlock(&device->template_cache_mutex);
+      simple_mtx_destroy(&device->template_cache_mutex);
+      
       wrapper_destroy_dummy_resources(device);
    }
 
@@ -996,24 +1017,48 @@ wrapper_UpdateDescriptorSetWithTemplate(VkDevice _device,
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
    
-   if (device->null_descriptors_enabled && pData) {
-      /* We need to get the template create info to parse the data structure.
-       * For now, we'll cache it when the template is created and store it in
-       * a hash table or similar. This is a simplified implementation that
-       * assumes we can access the original create info. */
-       
-      /* TODO: Implement template info caching during CreateDescriptorUpdateTemplate
-       * For now, pass through to the driver - this is a limitation */
-      device->dispatch_table.UpdateDescriptorSetWithTemplate(device->dispatch_handle,
-                                                             descriptorSet,
-                                                             descriptorUpdateTemplate,
-                                                             pData);
-   } else {
-      device->dispatch_table.UpdateDescriptorSetWithTemplate(device->dispatch_handle,
-                                                             descriptorSet,
-                                                             descriptorUpdateTemplate,
-                                                             pData);
+   if (device->null_descriptors_enabled && pData && descriptorUpdateTemplate != VK_NULL_HANDLE) {
+      /* Get cached template info */
+      simple_mtx_lock(&device->template_cache_mutex);
+      struct hash_entry *entry = _mesa_hash_table_search(device->template_cache, descriptorUpdateTemplate);
+      if (entry) {
+         VkDescriptorUpdateTemplateCreateInfo *create_info = entry->data;
+         
+         /* Create a copy of the data to modify */
+         size_t data_size = 0;
+         for (uint32_t i = 0; i < create_info->descriptorUpdateEntryCount; i++) {
+            const VkDescriptorUpdateTemplateEntry *template_entry = &create_info->pDescriptorUpdateEntries[i];
+            size_t entry_end = template_entry->offset + template_entry->stride * template_entry->descriptorCount;
+            if (entry_end > data_size) {
+               data_size = entry_end;
+            }
+         }
+         
+         void *modified_data = malloc(data_size);
+         if (modified_data) {
+            memcpy(modified_data, pData, data_size);
+            simple_mtx_unlock(&device->template_cache_mutex);
+            
+            /* Substitute null descriptors in the copied data */
+            substitute_null_descriptors_in_template(device, create_info, modified_data);
+            
+            /* Call the driver with modified data */
+            device->dispatch_table.UpdateDescriptorSetWithTemplate(device->dispatch_handle,
+                                                                   descriptorSet,
+                                                                   descriptorUpdateTemplate,
+                                                                   modified_data);
+            free(modified_data);
+            return;
+         }
+      }
+      simple_mtx_unlock(&device->template_cache_mutex);
    }
+   
+   /* Fallback: pass through to driver */
+   device->dispatch_table.UpdateDescriptorSetWithTemplate(device->dispatch_handle,
+                                                          descriptorSet,
+                                                          descriptorUpdateTemplate,
+                                                          pData);
 }
 
 /* Descriptor buffer support - stub implementations for VK_EXT_descriptor_buffer */
@@ -1055,4 +1100,68 @@ wrapper_GetDescriptorEXT(VkDevice _device,
     * calling the driver and potentially modifying the returned descriptor data */
    device->dispatch_table.GetDescriptorEXT(device->dispatch_handle,
                                           pDescriptorInfo, dataSize, pDescriptor);
+}
+
+/* Template management functions */
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_CreateDescriptorUpdateTemplate(VkDevice _device,
+                                      const VkDescriptorUpdateTemplateCreateInfo* pCreateInfo,
+                                      const VkAllocationCallbacks* pAllocator,
+                                      VkDescriptorUpdateTemplate* pDescriptorUpdateTemplate)
+{
+   VK_FROM_HANDLE(wrapper_device, device, _device);
+   
+   VkResult result = device->dispatch_table.CreateDescriptorUpdateTemplate(
+      device->dispatch_handle, pCreateInfo, pAllocator, pDescriptorUpdateTemplate);
+   
+   if (result == VK_SUCCESS && device->null_descriptors_enabled) {
+      /* Cache the template create info for null descriptor substitution */
+      VkDescriptorUpdateTemplateCreateInfo *cached_info = malloc(sizeof(VkDescriptorUpdateTemplateCreateInfo));
+      if (cached_info) {
+         *cached_info = *pCreateInfo;
+         
+         /* Deep copy the entries array */
+         size_t entries_size = sizeof(VkDescriptorUpdateTemplateEntry) * pCreateInfo->descriptorUpdateEntryCount;
+         cached_info->pDescriptorUpdateEntries = malloc(entries_size);
+         if (cached_info->pDescriptorUpdateEntries) {
+            memcpy((void*)cached_info->pDescriptorUpdateEntries, 
+                   pCreateInfo->pDescriptorUpdateEntries, entries_size);
+         } else {
+            free(cached_info);
+            cached_info = NULL;
+         }
+         
+         if (cached_info) {
+            simple_mtx_lock(&device->template_cache_mutex);
+            _mesa_hash_table_insert(device->template_cache, *pDescriptorUpdateTemplate, cached_info);
+            simple_mtx_unlock(&device->template_cache_mutex);
+         }
+      }
+   }
+   
+   return result;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_DestroyDescriptorUpdateTemplate(VkDevice _device,
+                                       VkDescriptorUpdateTemplate descriptorUpdateTemplate,
+                                       const VkAllocationCallbacks* pAllocator)
+{
+   VK_FROM_HANDLE(wrapper_device, device, _device);
+   
+   if (device->null_descriptors_enabled && descriptorUpdateTemplate != VK_NULL_HANDLE) {
+      /* Remove from template cache */
+      simple_mtx_lock(&device->template_cache_mutex);
+      struct hash_entry *entry = _mesa_hash_table_search(device->template_cache, descriptorUpdateTemplate);
+      if (entry) {
+         VkDescriptorUpdateTemplateCreateInfo *cached_info = entry->data;
+         free((void*)cached_info->pDescriptorUpdateEntries);
+         free(cached_info);
+         _mesa_hash_table_remove(device->template_cache, entry);
+      }
+      simple_mtx_unlock(&device->template_cache_mutex);
+   }
+   
+   device->dispatch_table.DestroyDescriptorUpdateTemplate(device->dispatch_handle, 
+                                                          descriptorUpdateTemplate, pAllocator);
 }

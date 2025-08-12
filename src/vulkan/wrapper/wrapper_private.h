@@ -8,13 +8,7 @@
 #include "vulkan/wsi/wsi_common.h"
 #include "util/simple_mtx.h"
 #include "util/macros.h"
-
-#ifdef __ANDROID__
-/* Android compatibility macros and definitions */
-#ifndef unreachable
-#define unreachable(msg) __builtin_unreachable()
-#endif
-#endif
+#include "util/hash_table.h"
 
 extern const struct vk_instance_extension_table wrapper_instance_extensions;
 extern const struct vk_device_extension_table wrapper_device_extensions;
@@ -49,12 +43,7 @@ struct wrapper_physical_device {
    VkPhysicalDeviceProperties2 properties2;
    VkPhysicalDeviceDriverProperties driver_properties;
    VkPhysicalDeviceMemoryProperties memory_properties;
-#ifndef __ANDROID__
    struct wsi_device wsi_device;
-#else
-   /* On Android, WSI may have different structure or be optional */
-   struct wsi_device wsi_device;
-#endif
    struct wrapper_instance *instance;
    struct vk_features base_supported_features;
    struct vk_device_extension_table base_supported_extensions;
@@ -92,6 +81,10 @@ struct wrapper_device {
    VkDeviceMemory dummy_image_memory_1d, dummy_image_memory_2d, dummy_image_memory_3d;
    VkImageView dummy_image_view_1d, dummy_image_view_2d, dummy_image_view_3d;
    VkSampler dummy_sampler;
+   
+   /* Template cache for null descriptor substitution */
+   simple_mtx_t template_cache_mutex;
+   struct hash_table *template_cache;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_device, vk.base, VkDevice,
@@ -182,3 +175,15 @@ wrapper_GetDescriptorEXT(VkDevice device,
                         const VkDescriptorGetInfoEXT* pDescriptorInfo,
                         size_t dataSize,
                         void* pDescriptor);
+
+/* Template management functions */
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_CreateDescriptorUpdateTemplate(VkDevice device,
+                                      const VkDescriptorUpdateTemplateCreateInfo* pCreateInfo,
+                                      const VkAllocationCallbacks* pAllocator,
+                                      VkDescriptorUpdateTemplate* pDescriptorUpdateTemplate);
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_DestroyDescriptorUpdateTemplate(VkDevice device,
+                                       VkDescriptorUpdateTemplate descriptorUpdateTemplate,
+                                       const VkAllocationCallbacks* pAllocator);
