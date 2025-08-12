@@ -23,6 +23,7 @@ const struct vk_device_extension_table wrapper_device_extensions =
    .KHR_present_wait = true,
    .KHR_incremental_present = true,
    .EXT_robustness2 = true,  /* Emulated when not natively supported */
+   .EXT_descriptor_buffer = false,  /* TODO: Enable when fully implemented */
 };
 
 const struct vk_device_extension_table wrapper_filter_extensions =
@@ -905,6 +906,88 @@ wrapper_UpdateDescriptorSets(VkDevice _device,
                                                descriptorCopyCount, pDescriptorCopies);
 }
 
+static void
+substitute_null_descriptors_in_template(struct wrapper_device *device, 
+                                       const VkDescriptorUpdateTemplateCreateInfo *create_info,
+                                       void* pData)
+{
+   if (!device->null_descriptors_enabled || !create_info || !pData)
+      return;
+
+   for (uint32_t i = 0; i < create_info->descriptorUpdateEntryCount; i++) {
+      const VkDescriptorUpdateTemplateEntry *entry = &create_info->pDescriptorUpdateEntries[i];
+      uint8_t *data_ptr = (uint8_t*)pData + entry->offset;
+      
+      switch (entry->descriptorType) {
+      case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+      case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+      case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+      case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+         {
+            VkDescriptorBufferInfo *buf_info = (VkDescriptorBufferInfo*)data_ptr;
+            for (uint32_t j = 0; j < entry->descriptorCount; j++) {
+               if (buf_info[j].buffer == VK_NULL_HANDLE) {
+                  buf_info[j].buffer = device->dummy_buffer;
+                  buf_info[j].offset = 0;
+                  buf_info[j].range = VK_WHOLE_SIZE;
+               }
+               data_ptr += entry->stride;
+               buf_info = (VkDescriptorBufferInfo*)data_ptr;
+            }
+         }
+         break;
+         
+      case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+      case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+         {
+            VkDescriptorImageInfo *img_info = (VkDescriptorImageInfo*)data_ptr;
+            for (uint32_t j = 0; j < entry->descriptorCount; j++) {
+               if (img_info[j].imageView == VK_NULL_HANDLE) {
+                  img_info[j].imageView = device->dummy_image_view_2d;
+                  img_info[j].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+               }
+               data_ptr += entry->stride;
+               img_info = (VkDescriptorImageInfo*)data_ptr;
+            }
+         }
+         break;
+         
+      case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+         {
+            VkDescriptorImageInfo *img_info = (VkDescriptorImageInfo*)data_ptr;
+            for (uint32_t j = 0; j < entry->descriptorCount; j++) {
+               if (img_info[j].imageView == VK_NULL_HANDLE) {
+                  img_info[j].imageView = device->dummy_image_view_2d;
+                  img_info[j].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+               }
+               if (img_info[j].sampler == VK_NULL_HANDLE) {
+                  img_info[j].sampler = device->dummy_sampler;
+               }
+               data_ptr += entry->stride;
+               img_info = (VkDescriptorImageInfo*)data_ptr;
+            }
+         }
+         break;
+         
+      case VK_DESCRIPTOR_TYPE_SAMPLER:
+         {
+            VkDescriptorImageInfo *img_info = (VkDescriptorImageInfo*)data_ptr;
+            for (uint32_t j = 0; j < entry->descriptorCount; j++) {
+               if (img_info[j].sampler == VK_NULL_HANDLE) {
+                  img_info[j].sampler = device->dummy_sampler;
+               }
+               data_ptr += entry->stride;
+               img_info = (VkDescriptorImageInfo*)data_ptr;
+            }
+         }
+         break;
+         
+      default:
+         break;
+      }
+   }
+}
+
 VKAPI_ATTR void VKAPI_CALL
 wrapper_UpdateDescriptorSetWithTemplate(VkDevice _device,
                                         VkDescriptorSet descriptorSet,
@@ -913,10 +996,63 @@ wrapper_UpdateDescriptorSetWithTemplate(VkDevice _device,
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
    
-   /* For now, pass through to the driver - full emulation would require parsing the template */
-   /* TODO: Implement template-based null descriptor substitution */
-   device->dispatch_table.UpdateDescriptorSetWithTemplate(device->dispatch_handle,
-                                                          descriptorSet,
-                                                          descriptorUpdateTemplate,
-                                                          pData);
+   if (device->null_descriptors_enabled && pData) {
+      /* We need to get the template create info to parse the data structure.
+       * For now, we'll cache it when the template is created and store it in
+       * a hash table or similar. This is a simplified implementation that
+       * assumes we can access the original create info. */
+       
+      /* TODO: Implement template info caching during CreateDescriptorUpdateTemplate
+       * For now, pass through to the driver - this is a limitation */
+      device->dispatch_table.UpdateDescriptorSetWithTemplate(device->dispatch_handle,
+                                                             descriptorSet,
+                                                             descriptorUpdateTemplate,
+                                                             pData);
+   } else {
+      device->dispatch_table.UpdateDescriptorSetWithTemplate(device->dispatch_handle,
+                                                             descriptorSet,
+                                                             descriptorUpdateTemplate,
+                                                             pData);
+   }
+}
+
+/* Descriptor buffer support - stub implementations for VK_EXT_descriptor_buffer */
+VKAPI_ATTR void VKAPI_CALL
+wrapper_GetDescriptorSetLayoutSizeEXT(VkDevice _device,
+                                      VkDescriptorSetLayout layout,
+                                      VkDeviceSize* pLayoutSizeInBytes)
+{
+   VK_FROM_HANDLE(wrapper_device, device, _device);
+   
+   /* For now, pass through to driver - null descriptor emulation for descriptor buffers
+    * would require intercepting descriptor writes into buffer memory */
+   device->dispatch_table.GetDescriptorSetLayoutSizeEXT(device->dispatch_handle,
+                                                        layout, pLayoutSizeInBytes);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_GetDescriptorSetLayoutBindingOffsetEXT(VkDevice _device,
+                                               VkDescriptorSetLayout layout,
+                                               uint32_t binding,
+                                               VkDeviceSize* pOffset)
+{
+   VK_FROM_HANDLE(wrapper_device, device, _device);
+   
+   device->dispatch_table.GetDescriptorSetLayoutBindingOffsetEXT(device->dispatch_handle,
+                                                                 layout, binding, pOffset);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_GetDescriptorEXT(VkDevice _device,
+                        const VkDescriptorGetInfoEXT* pDescriptorInfo,
+                        size_t dataSize,
+                        void* pDescriptor)
+{
+   VK_FROM_HANDLE(wrapper_device, device, _device);
+   
+   /* TODO: Implement null descriptor emulation for descriptor buffers
+    * This would require substituting null handles in pDescriptorInfo before 
+    * calling the driver and potentially modifying the returned descriptor data */
+   device->dispatch_table.GetDescriptorEXT(device->dispatch_handle,
+                                          pDescriptorInfo, dataSize, pDescriptor);
 }

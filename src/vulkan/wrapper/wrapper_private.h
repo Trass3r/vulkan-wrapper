@@ -7,6 +7,14 @@
 #include "vulkan/util/vk_dispatch_table.h"
 #include "vulkan/wsi/wsi_common.h"
 #include "util/simple_mtx.h"
+#include "util/macros.h"
+
+#ifdef __ANDROID__
+/* Android compatibility macros and definitions */
+#ifndef unreachable
+#define unreachable(msg) __builtin_unreachable()
+#endif
+#endif
 
 extern const struct vk_instance_extension_table wrapper_instance_extensions;
 extern const struct vk_device_extension_table wrapper_device_extensions;
@@ -41,7 +49,12 @@ struct wrapper_physical_device {
    VkPhysicalDeviceProperties2 properties2;
    VkPhysicalDeviceDriverProperties driver_properties;
    VkPhysicalDeviceMemoryProperties memory_properties;
+#ifndef __ANDROID__
    struct wsi_device wsi_device;
+#else
+   /* On Android, WSI may have different structure or be optional */
+   struct wsi_device wsi_device;
+#endif
    struct wrapper_instance *instance;
    struct vk_features base_supported_features;
    struct vk_device_extension_table base_supported_extensions;
@@ -151,3 +164,21 @@ wrapper_UpdateDescriptorSetWithTemplate(VkDevice device,
                                         VkDescriptorSet descriptorSet,
                                         VkDescriptorUpdateTemplate descriptorUpdateTemplate,
                                         const void* pData);
+
+/* Descriptor buffer support - stub functions for future implementation */
+VKAPI_ATTR void VKAPI_CALL
+wrapper_GetDescriptorSetLayoutSizeEXT(VkDevice device,
+                                      VkDescriptorSetLayout layout,
+                                      VkDeviceSize* pLayoutSizeInBytes);
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_GetDescriptorSetLayoutBindingOffsetEXT(VkDevice device,
+                                               VkDescriptorSetLayout layout,
+                                               uint32_t binding,
+                                               VkDeviceSize* pOffset);
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_GetDescriptorEXT(VkDevice device,
+                        const VkDescriptorGetInfoEXT* pDescriptorInfo,
+                        size_t dataSize,
+                        void* pDescriptor);

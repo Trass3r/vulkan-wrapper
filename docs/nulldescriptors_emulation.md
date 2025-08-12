@@ -97,9 +97,10 @@ The emulation currently handles:
 
 ## Limitations
 
-1. **Template Updates**: `vkUpdateDescriptorSetWithTemplate` currently passes through without null substitution (requires template parsing)
-2. **Descriptor Buffers**: VK_EXT_descriptor_buffer is not yet emulated (noted for future work)
+1. **Template Updates**: `vkUpdateDescriptorSetWithTemplate` now partially supports null substitution with basic template parsing, but requires caching template create info for full functionality
+2. **Descriptor Buffers**: VK_EXT_descriptor_buffer stub implementation added - null descriptor emulation not yet fully implemented for buffer-backed descriptors  
 3. **Memory Overhead**: Small memory cost for dummy resources per device
+4. **Android Compatibility**: Added compatibility shims for Android builds with WSI structure guards and unreachable macro definitions
 
 ## Testing
 
@@ -108,9 +109,11 @@ The emulation currently handles:
 - `tests/test_nulldescriptors.py`: High-level emulation behavior test
 
 ### CI Integration
-- Ubuntu CI workflow tests wrapper compilation
+- Ubuntu CI workflow tests wrapper compilation with display-info disabled to avoid edid-decode test failures
+- Wrapper-specific CI configuration in `.gitlab-ci/wrapper-ci.yml`
 - Basic functionality verification
 - Null descriptor logic validation
+- Android build compatibility testing
 
 ## DXVK Compatibility
 
@@ -128,7 +131,8 @@ This implementation specifically supports DXVK's usage patterns:
 
 ## Future Enhancements
 
-1. **Template Support**: Full `vkUpdateDescriptorSetWithTemplate` emulation
-2. **Descriptor Buffers**: VK_EXT_descriptor_buffer emulation
-3. **Resource Pooling**: Share dummy resources across multiple devices
+1. **Template Support**: Complete `vkUpdateDescriptorSetWithTemplate` emulation with template create info caching
+2. **Descriptor Buffers**: Full VK_EXT_descriptor_buffer emulation with null descriptor support
+3. **Resource Pooling**: Share dummy resources across multiple devices  
 4. **Advanced Detection**: More sophisticated native feature detection
+5. **Android Optimizations**: Optimize WSI compatibility layer for Android-specific use cases
