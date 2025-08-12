@@ -105,8 +105,24 @@ The emulation currently handles:
 ## Testing
 
 ### Unit Tests
-- `tests/test_nulldescriptor_logic.c`: Core substitution logic test
-- `tests/test_nulldescriptors.py`: High-level emulation behavior test
+- `tests/test_nulldescriptor_logic.c`: Core substitution logic tests with mock Vulkan structures
+- `tests/test_nulldescriptors.py`: High-level emulation behavior and integration tests
+
+### Test Coverage
+- Null buffer descriptor substitution (uniform, storage, dynamic variants)
+- Null image descriptor substitution (sampled, storage, combined image samplers)
+- Null sampler substitution
+- Template-based descriptor update parsing
+- Native support detection logic
+- Emulation enable/disable behavior
+- Android compatibility features
+
+### Running Tests
+```bash
+cd tests
+make test                        # Run C unit tests
+python3 test_nulldescriptors.py  # Run Python behavior tests
+```
 
 ### CI Integration
 - Ubuntu CI workflow tests wrapper compilation with display-info disabled to avoid edid-decode test failures

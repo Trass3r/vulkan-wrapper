@@ -32,8 +32,10 @@ wrapper-test-nulldescriptors:
     - wrapper-build-ubuntu
   script:
     - echo "Testing null descriptor emulation functionality"
-    # Add specific tests for null descriptor functionality here
-    - echo "Null descriptor tests would be run here"
+    - cd tests
+    - make test
+    - python3 test_nulldescriptors.py
+    - echo "✓ All null descriptor tests passed"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "nulldescriptors"'
