@@ -46,20 +46,16 @@ jobs:
             unzip \
             openjdk-11-jdk
 
-      - name: Install Python Dependencies
-        run: |
-          pip3 install --user mako ply
-
       - name: Setup Android NDK
         run: |
           # Download and install Android NDK
           cd /opt
-          sudo wget -q https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
-          sudo unzip -q android-ndk-r26d-linux.zip
-          sudo rm android-ndk-r26d-linux.zip
-          sudo mv android-ndk-r26d android-ndk
-          echo "export ANDROID_NDK_ROOT=/opt/android-ndk" | sudo tee -a /etc/environment
-          echo "export PATH=\$PATH:/opt/android-ndk" | sudo tee -a /etc/environment
+          sudo wget -q https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
+          sudo unzip -q android-ndk-*.zip
+          sudo rm android-ndk-*.zip
+          sudo mv android-ndk-* android-ndk
+          echo "ANDROID_NDK_ROOT=/opt/android-ndk" >> $GITHUB_ENV
+          echo "/opt/android-ndk" >> $GITHUB_PATH
 
       - name: Setup Android SDK (minimal)
         run: |
@@ -70,9 +66,10 @@ jobs:
           sudo rm commandlinetools-linux-11076708_latest.zip
           sudo mkdir -p android-sdk/cmdline-tools
           sudo mv cmdline-tools android-sdk/cmdline-tools/latest
-          echo "export ANDROID_HOME=/opt/android-sdk" | sudo tee -a /etc/environment
-          echo "export PATH=\$PATH:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools" | sudo tee -a /etc/environment
-
+          echo "ANDROID_HOME=/opt/android-sdk" >> $GITHUB_ENV
+          echo "/opt/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "/opt/android-sdk/platform-tools" >> $GITHUB_PATH
+  
       - name: Setup Vulkan CTS Dependencies
         run: |
           # Install dependencies for Vulkan CTS
@@ -134,5 +131,6 @@ jobs:
           echo "Python version: $(python3 --version)"
           echo "Android NDK: $([[ -d /opt/android-ndk ]] && echo 'Installed' || echo 'Missing')"
           echo "Android SDK: $([[ -d /opt/android-sdk ]] && echo 'Installed' || echo 'Missing')"
+          adb --version
           echo "Cross-compilation files: $([[ -f /opt/cross-files/android-aarch64.txt ]] && echo 'Ready' || echo 'Missing')"
           ls -la /opt/ | grep -E "(android|cross-files)" || true
