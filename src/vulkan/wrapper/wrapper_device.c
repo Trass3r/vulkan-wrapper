@@ -252,6 +252,18 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
          wrapper_DestroyDescriptorUpdateTemplate;
    }
 
+   /* Setup BC texture compression emulation if needed */
+   if (physical_device->enable_bc) {
+      result = wrapper_bc_device_init(device);
+      if (result != VK_SUCCESS) {
+         vk_loge(VK_LOG_OBJS(&device->vk.base),
+                 "Failed to initialize BC emulation: %s", vk_Result_to_str(result));
+         wrapper_DestroyDevice(wrapper_device_to_handle(device),
+                               &device->vk.alloc);
+         return vk_error(physical_device, result);
+      }
+   }
+
    *pDevice = wrapper_device_to_handle(device);
 
    return VK_SUCCESS;
@@ -518,6 +530,11 @@ wrapper_DestroyDevice(VkDevice _device, const VkAllocationCallbacks* pAllocator)
       simple_mtx_destroy(&device->template_cache_mutex);
       
       wrapper_destroy_dummy_resources(device);
+   }
+
+   /* Clean up BC texture compression emulation */
+   if (device->physical->enable_bc) {
+      wrapper_bc_device_finish(device);
    }
 
    list_for_each_entry_safe(struct vk_queue, queue, &device->vk.queues, link) {

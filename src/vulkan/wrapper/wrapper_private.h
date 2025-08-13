@@ -187,3 +187,7 @@ VKAPI_ATTR void VKAPI_CALL
 wrapper_DestroyDescriptorUpdateTemplate(VkDevice device,
                                        VkDescriptorUpdateTemplate descriptorUpdateTemplate,
                                        const VkAllocationCallbacks* pAllocator);
+
+/* BC texture compression emulation functions */
+VkResult wrapper_bc_device_init(struct wrapper_device *device);
+void wrapper_bc_device_finish(struct wrapper_device *device);
