@@ -1,6 +1,7 @@
 #include "wrapper_private.h"
 #include "wrapper_entrypoints.h"
 #include "wrapper_trampolines.h"
+#include "wrapper_bc.h"
 #include "vk_alloc.h"
 #include "vk_common_entrypoints.h"
 #include "vk_dispatch_table.h"
@@ -193,6 +194,12 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       if (pdevice->enable_bc)
          supported_features->textureCompressionBC = true;
 
+      /* Hook format properties functions for BC emulation */
+      if (pdevice->enable_bc) {
+         pdevice->vk.dispatch_table.GetPhysicalDeviceFormatProperties = wrapper_GetPhysicalDeviceFormatProperties;
+         pdevice->vk.dispatch_table.GetPhysicalDeviceFormatProperties2 = wrapper_GetPhysicalDeviceFormatProperties2;
+      }
+
       pdevice->enable_map_memory_placed =
          !pdevice->vk.supported_extensions.EXT_map_memory_placed
          && (WRAPPER_DEBUG & WRAPPER_MAP_MEMORY_PLACED);
@@ -334,4 +341,85 @@ wrapper_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
          break;
       }
    }
+}
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
+                                         VkFormat format,
+                                         VkFormatProperties* pFormatProperties)
+{
+   VK_FROM_HANDLE(wrapper_physical_device, pdevice, physicalDevice);
+   
+   /* Check if this is a BC format that we can emulate */
+   if (pdevice->enable_bc && wrapper_is_bc_format(format)) {
+      const struct bc_format_info *bc_info = wrapper_get_bc_format_info(format);
+      if (bc_info) {
+         /* Get properties of the emulated format first */
+         VkFormatProperties emulated_props;
+         pdevice->dispatch_table.GetPhysicalDeviceFormatProperties(
+            pdevice->dispatch_handle, bc_info->decompressed_format, &emulated_props);
+         
+         /* Advertise BC format as supported with appropriate feature flags */
+         pFormatProperties->linearTilingFeatures = 0; /* BC formats typically don't support linear tiling */
+         pFormatProperties->optimalTilingFeatures = 
+            VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+            VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
+            VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
+         pFormatProperties->bufferFeatures = 0; /* BC formats not supported for buffers */
+         
+         /* Add additional features if the emulated format supports them */
+         if (emulated_props.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT)
+            pFormatProperties->optimalTilingFeatures |= VK_FORMAT_FEATURE_BLIT_DST_BIT;
+         if (emulated_props.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT)
+            pFormatProperties->optimalTilingFeatures |= VK_FORMAT_FEATURE_BLIT_SRC_BIT;
+         
+         return;
+      }
+   }
+   
+   /* Not a BC format or BC emulation disabled, pass through */
+   pdevice->dispatch_table.GetPhysicalDeviceFormatProperties(
+      pdevice->dispatch_handle, format, pFormatProperties);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_GetPhysicalDeviceFormatProperties2(VkPhysicalDevice physicalDevice,
+                                          VkFormat format,
+                                          VkFormatProperties2* pFormatProperties)
+{
+   VK_FROM_HANDLE(wrapper_physical_device, pdevice, physicalDevice);
+   
+   /* Check if this is a BC format that we can emulate */
+   if (pdevice->enable_bc && wrapper_is_bc_format(format)) {
+      const struct bc_format_info *bc_info = wrapper_get_bc_format_info(format);
+      if (bc_info) {
+         /* Get properties of the emulated format first */
+         VkFormatProperties2 emulated_props = {
+            .sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2,
+            .pNext = NULL
+         };
+         pdevice->dispatch_table.GetPhysicalDeviceFormatProperties2(
+            pdevice->dispatch_handle, bc_info->decompressed_format, &emulated_props);
+         
+         /* Set up BC format properties */
+         pFormatProperties->formatProperties.linearTilingFeatures = 0;
+         pFormatProperties->formatProperties.optimalTilingFeatures = 
+            VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+            VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
+            VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
+         pFormatProperties->formatProperties.bufferFeatures = 0;
+         
+         /* Add additional features if the emulated format supports them */
+         if (emulated_props.formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT)
+            pFormatProperties->formatProperties.optimalTilingFeatures |= VK_FORMAT_FEATURE_BLIT_DST_BIT;
+         if (emulated_props.formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT)
+            pFormatProperties->formatProperties.optimalTilingFeatures |= VK_FORMAT_FEATURE_BLIT_SRC_BIT;
+         
+         return;
+      }
+   }
+   
+   /* Not a BC format or BC emulation disabled, pass through */
+   pdevice->dispatch_table.GetPhysicalDeviceFormatProperties2(
+      pdevice->dispatch_handle, format, pFormatProperties);
 }

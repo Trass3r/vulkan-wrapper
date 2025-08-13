@@ -1,6 +1,6 @@
 # Vulkan Wrapper Tests
 
-This directory contains tests for the Vulkan wrapper's null descriptor emulation functionality.
+This directory contains tests for the Vulkan wrapper's null descriptor emulation and BC texture compression emulation functionality.
 
 ## Test Files
 
@@ -32,9 +32,37 @@ python3 test_nulldescriptors.py
 - Descriptor buffer stub functionality
 - Android compatibility features
 
+### `test_bc_simple.c`
+Basic tests for BC texture compression emulation logic without requiring full Vulkan setup.
+
+**To build and run:**
+```bash
+make test  # Included in basic test suite
+```
+
+**Tests covered:**
+- BC format constant validation
+- Block size calculation logic
+- Environment variable setup
+- Basic decompression data validation
+
+### `test_bc_emulation.c`
+Comprehensive Vulkan integration tests for BC texture compression emulation (requires Vulkan driver).
+
+**To build:**
+```bash
+make test_bc_emulation
+```
+
+**Tests covered:**
+- BC format properties queries
+- BC image creation and view creation
+- Memory requirements for BC images
+- Integration with Vulkan drivers
+
 ## Usage
 
-To run all tests:
+To run basic tests:
 ```bash
 # C unit tests
 make test
@@ -44,6 +72,16 @@ python3 test_nulldescriptors.py
 
 # Clean up
 make clean
+```
+
+To run full Vulkan BC tests (requires Vulkan-capable system):
+```bash
+# Set environment to enable BC emulation
+export WRAPPER_DEBUG=2
+
+# Build and run
+make test_bc_emulation
+./test_bc_emulation
 ```
 
 ## CI Integration
@@ -62,3 +100,10 @@ When adding new null descriptor functionality:
 2. Add behavior tests in `test_nulldescriptors.py` for integration scenarios
 3. Update this README with new test descriptions
 4. Ensure tests run successfully in CI
+
+When adding new BC texture compression functionality:
+
+1. Add basic logic tests in `test_bc_simple.c` for non-Vulkan functionality
+2. Add integration tests in `test_bc_emulation.c` for full Vulkan scenarios
+3. Test with the environment variable `WRAPPER_DEBUG=2` to enable BC emulation
+4. Verify tests work both with and without native BC texture support

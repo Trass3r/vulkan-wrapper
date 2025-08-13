@@ -269,6 +269,9 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
       device->vk.dispatch_table.CreateImage = wrapper_CreateImage;
       device->vk.dispatch_table.DestroyImage = wrapper_DestroyImage;
       device->vk.dispatch_table.GetImageMemoryRequirements = wrapper_GetImageMemoryRequirements;
+      device->vk.dispatch_table.CreateImageView = wrapper_CreateImageView;
+      device->vk.dispatch_table.BindImageMemory = wrapper_BindImageMemory;
+      device->vk.dispatch_table.CmdCopyBufferToImage = wrapper_CmdCopyBufferToImage;
    }
 
    *pDevice = wrapper_device_to_handle(device);

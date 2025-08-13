@@ -223,3 +223,34 @@ VKAPI_ATTR void VKAPI_CALL
 wrapper_GetImageMemoryRequirements(VkDevice device,
                                   VkImage image,
                                   VkMemoryRequirements* pMemoryRequirements);
+
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_CreateImageView(VkDevice device,
+                       const VkImageViewCreateInfo* pCreateInfo,
+                       const VkAllocationCallbacks* pAllocator,
+                       VkImageView* pView);
+
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_BindImageMemory(VkDevice device,
+                       VkImage image,
+                       VkDeviceMemory memory,
+                       VkDeviceSize memoryOffset);
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
+                            VkBuffer srcBuffer,
+                            VkImage dstImage,
+                            VkImageLayout dstImageLayout,
+                            uint32_t regionCount,
+                            const VkBufferImageCopy* pRegions);
+
+/* BC format properties support */
+VKAPI_ATTR void VKAPI_CALL
+wrapper_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
+                                         VkFormat format,
+                                         VkFormatProperties* pFormatProperties);
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_GetPhysicalDeviceFormatProperties2(VkPhysicalDevice physicalDevice,
+                                          VkFormat format,
+                                          VkFormatProperties2* pFormatProperties);
