@@ -174,17 +174,10 @@ jobs:
         # Build CTS
         mkdir build
         cd build
-        cmake .. \
+        cmake .. -GNinja \
           -DCMAKE_BUILD_TYPE=Release \
-          -DDEQP_TARGET=default \
-          -DDEQP_SUPPORT_GLES1=OFF \
-          -DDEQP_SUPPORT_GLES2=OFF \
-          -DDEQP_SUPPORT_GLES3=OFF \
-          -DDEQP_SUPPORT_GLES31=OFF \
-          -DDEQP_SUPPORT_EGL=OFF \
-          -DDEQP_SUPPORT_GLX=OFF \
-          -DDEQP_SUPPORT_WGL=OFF
-        make -j$(nproc) deqp-vk
+          -DDEQP_TARGET=default
+        ninja deqp-vk
 
         echo "=== Vulkan CTS Built Successfully ==="
         echo "Checking for deqp-vk executable..."
@@ -211,7 +204,7 @@ jobs:
         DEQP_VK_EXECUTABLE=$(find . -name "deqp-vk" -type f | head -1)
         if [ -n "$DEQP_VK_EXECUTABLE" ]; then
           timeout 300 "$DEQP_VK_EXECUTABLE" \
-            --deqp-caselist-file=/tmp/wrapper_tests.txt \
+            --deqp-caselist-file=../external/vulkancts/mustpass/main/vk-default/robustness.txt \
             --deqp-log-images=disable \
             --deqp-log-shader-sources=disable \
             --deqp-log-filename=/tmp/cts_results.qpa || echo "CTS run completed (may have timed out)"
