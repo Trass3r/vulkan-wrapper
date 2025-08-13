@@ -165,7 +165,7 @@ jobs:
       run: |
         # Clone Vulkan CTS
         cd /tmp
-        git clone https://github.com/KhronosGroup/VK-GL-CTS.git vk-gl-cts --depth 1
+        git clone https://github.com/KhronosGroup/VK-GL-CTS.git vk-gl-cts --depth 1 -b vulkan-cts-1.4.3
         cd vk-gl-cts
 
         # Get external dependencies
