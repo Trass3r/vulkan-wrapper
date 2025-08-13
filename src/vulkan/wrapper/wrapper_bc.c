@@ -1,6 +1,8 @@
 #include "wrapper_bc.h"
 #include "wrapper_private.h"
 
+/* Define BCDEC_BC4BC5_PRECISE for signed/unsigned BC4/BC5 support */
+#define BCDEC_BC4BC5_PRECISE
 /* Define BCDEC_IMPLEMENTATION to include implementation */
 #define BCDEC_IMPLEMENTATION
 #include "bcdec.h"
@@ -62,6 +64,38 @@ static const struct bc_format_info bc_formats[] = {
       .decompressed_format = VK_FORMAT_R8G8B8A8_SRGB,
       .name = "BC2_SRGB"
    },
+   {
+      .format = VK_FORMAT_BC3_UNORM_BLOCK,
+      .block_size = BCDEC_BC3_BLOCK_SIZE,
+      .block_width = 4,
+      .block_height = 4,
+      .decompressed_format = VK_FORMAT_R8G8B8A8_UNORM,
+      .name = "BC3_UNORM"
+   },
+   {
+      .format = VK_FORMAT_BC3_SRGB_BLOCK,
+      .block_size = BCDEC_BC3_BLOCK_SIZE,
+      .block_width = 4,
+      .block_height = 4,
+      .decompressed_format = VK_FORMAT_R8G8B8A8_SRGB,
+      .name = "BC3_SRGB"
+   },
+   {
+      .format = VK_FORMAT_BC4_UNORM_BLOCK,
+      .block_size = BCDEC_BC4_BLOCK_SIZE,
+      .block_width = 4,
+      .block_height = 4,
+      .decompressed_format = VK_FORMAT_R8_UNORM,
+      .name = "BC4_UNORM"
+   },
+   {
+      .format = VK_FORMAT_BC4_SNORM_BLOCK,
+      .block_size = BCDEC_BC4_BLOCK_SIZE,
+      .block_width = 4,
+      .block_height = 4,
+      .decompressed_format = VK_FORMAT_R8_SNORM,
+      .name = "BC4_SNORM"
+   },
 };
 
 static const uint32_t bc_format_count = ARRAY_SIZE(bc_formats);
@@ -117,6 +151,27 @@ wrapper_bc2_decompress_block(const void *compressed_block,
    return VK_SUCCESS;
 }
 
+static VkResult 
+wrapper_bc3_decompress_block(const void *compressed_block, 
+                            void *decompressed_block,
+                            uint32_t block_pitch)
+{
+   /* Use bcdec to decompress BC3 block to RGBA8 */
+   bcdec_bc3(compressed_block, decompressed_block, block_pitch);
+   return VK_SUCCESS;
+}
+
+static VkResult 
+wrapper_bc4_decompress_block(const void *compressed_block, 
+                            void *decompressed_block,
+                            uint32_t block_pitch,
+                            bool is_signed)
+{
+   /* Use bcdec to decompress BC4 block to R8 */
+   bcdec_bc4(compressed_block, decompressed_block, block_pitch, is_signed ? 1 : 0);
+   return VK_SUCCESS;
+}
+
 VkResult wrapper_bc_decompress_image(struct wrapper_device *device,
                                    VkFormat src_format,
                                    uint32_t width,
@@ -145,13 +200,17 @@ VkResult wrapper_bc_decompress_image(struct wrapper_device *device,
       return VK_ERROR_UNKNOWN;
    }
 
-   /* Support BC1 and BC2 formats */
+   /* Support BC1, BC2, BC3, and BC4 formats */
    if (src_format != VK_FORMAT_BC1_RGB_UNORM_BLOCK &&
        src_format != VK_FORMAT_BC1_RGB_SRGB_BLOCK &&
        src_format != VK_FORMAT_BC1_RGBA_UNORM_BLOCK &&
        src_format != VK_FORMAT_BC1_RGBA_SRGB_BLOCK &&
        src_format != VK_FORMAT_BC2_UNORM_BLOCK &&
-       src_format != VK_FORMAT_BC2_SRGB_BLOCK) {
+       src_format != VK_FORMAT_BC2_SRGB_BLOCK &&
+       src_format != VK_FORMAT_BC3_UNORM_BLOCK &&
+       src_format != VK_FORMAT_BC3_SRGB_BLOCK &&
+       src_format != VK_FORMAT_BC4_UNORM_BLOCK &&
+       src_format != VK_FORMAT_BC4_SNORM_BLOCK) {
       vk_loge(VK_LOG_OBJS(&device->vk.base),
               "BC format %s not yet implemented", info->name);
       return VK_ERROR_FEATURE_NOT_PRESENT;
@@ -161,8 +220,15 @@ VkResult wrapper_bc_decompress_image(struct wrapper_device *device,
    const uint8_t *src_blocks = (const uint8_t *)compressed_data;
    uint8_t *dst_image = (uint8_t *)decompressed_data;
    
-   /* Calculate destination pitch (width * 4 bytes per RGBA pixel) */
-   uint32_t dst_pitch = width * 4;
+   /* Calculate destination pitch based on format */
+   uint32_t dst_pitch;
+   bool is_bc4_format = (src_format == VK_FORMAT_BC4_UNORM_BLOCK || 
+                        src_format == VK_FORMAT_BC4_SNORM_BLOCK);
+   if (is_bc4_format) {
+      dst_pitch = width * 1; /* BC4 -> R8: 1 byte per pixel */
+   } else {
+      dst_pitch = width * 4; /* BC1/BC2/BC3 -> RGBA8: 4 bytes per pixel */
+   }
    
    for (uint32_t block_y = 0; block_y < blocks_y; block_y++) {
       for (uint32_t block_x = 0; block_x < blocks_x; block_x++) {
@@ -173,7 +239,7 @@ VkResult wrapper_bc_decompress_image(struct wrapper_device *device,
          /* Calculate destination block pointer */
          uint8_t *dst_block = dst_image + 
             (block_y * info->block_height * dst_pitch) + 
-            (block_x * info->block_width * 4);
+            (block_x * info->block_width * (is_bc4_format ? 1 : 4));
 
          /* Decompress this block based on format */
          VkResult result;
@@ -187,6 +253,16 @@ VkResult wrapper_bc_decompress_image(struct wrapper_device *device,
          case VK_FORMAT_BC2_UNORM_BLOCK:
          case VK_FORMAT_BC2_SRGB_BLOCK:
             result = wrapper_bc2_decompress_block(src_block, dst_block, dst_pitch);
+            break;
+         case VK_FORMAT_BC3_UNORM_BLOCK:
+         case VK_FORMAT_BC3_SRGB_BLOCK:
+            result = wrapper_bc3_decompress_block(src_block, dst_block, dst_pitch);
+            break;
+         case VK_FORMAT_BC4_UNORM_BLOCK:
+            result = wrapper_bc4_decompress_block(src_block, dst_block, dst_pitch, false);
+            break;
+         case VK_FORMAT_BC4_SNORM_BLOCK:
+            result = wrapper_bc4_decompress_block(src_block, dst_block, dst_pitch, true);
             break;
          default:
             result = VK_ERROR_FORMAT_NOT_SUPPORTED;
@@ -254,11 +330,17 @@ static VkFormat bc_format_to_emulated_format(VkFormat bc_format)
    case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
    case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
    case VK_FORMAT_BC2_UNORM_BLOCK:
+   case VK_FORMAT_BC3_UNORM_BLOCK:
       return VK_FORMAT_R8G8B8A8_UNORM;
    case VK_FORMAT_BC1_RGB_SRGB_BLOCK:
    case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
    case VK_FORMAT_BC2_SRGB_BLOCK:
+   case VK_FORMAT_BC3_SRGB_BLOCK:
       return VK_FORMAT_R8G8B8A8_SRGB;
+   case VK_FORMAT_BC4_UNORM_BLOCK:
+      return VK_FORMAT_R8_UNORM;
+   case VK_FORMAT_BC4_SNORM_BLOCK:
+      return VK_FORMAT_R8_SNORM;
    default:
       return VK_FORMAT_UNDEFINED;
    }
