@@ -1,6 +1,7 @@
 #include "wrapper_private.h"
 #include "wrapper_entrypoints.h"
 #include "wrapper_trampolines.h"
+#include "wrapper_bc.h"
 #include "vk_alloc.h"
 #include "vk_common_entrypoints.h"
 #include "vk_device.h"
@@ -10,6 +11,7 @@
 #include "vk_util.h"
 #include "util/list.h"
 #include "util/simple_mtx.h"
+#include "util/hash_table.h"
 
 const struct vk_device_extension_table wrapper_device_extensions =
 {
@@ -262,6 +264,11 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
                                &device->vk.alloc);
          return vk_error(physical_device, result);
       }
+
+      /* Intercept image functions for BC emulation */
+      device->vk.dispatch_table.CreateImage = wrapper_CreateImage;
+      device->vk.dispatch_table.DestroyImage = wrapper_DestroyImage;
+      device->vk.dispatch_table.GetImageMemoryRequirements = wrapper_GetImageMemoryRequirements;
    }
 
    *pDevice = wrapper_device_to_handle(device);

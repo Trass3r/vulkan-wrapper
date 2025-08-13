@@ -85,10 +85,25 @@ struct wrapper_device {
    /* Template cache for null descriptor substitution */
    simple_mtx_t template_cache_mutex;
    struct hash_table *template_cache;
+
+   /* BC texture compression emulation */
+   bool bc_emulation_enabled;
+   simple_mtx_t bc_image_mutex;
+   struct hash_table *bc_image_map; /* Maps VkImage to bc_image_info */
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_device, vk.base, VkDevice,
                        VK_OBJECT_TYPE_DEVICE)
+
+/* BC emulated image information */
+struct bc_image_info {
+   VkFormat original_format;    /* Original BC format requested */
+   VkFormat emulated_format;    /* Actual format used (e.g., RGBA8) */
+   VkImage emulated_image;      /* The actual VkImage created with emulated format */
+   uint32_t width, height, depth;
+   uint32_t mip_levels;
+   uint32_t array_layers;
+};
 
 struct wrapper_command_buffer {
    struct vk_command_buffer vk;
@@ -191,3 +206,20 @@ wrapper_DestroyDescriptorUpdateTemplate(VkDevice device,
 /* BC texture compression emulation functions */
 VkResult wrapper_bc_device_init(struct wrapper_device *device);
 void wrapper_bc_device_finish(struct wrapper_device *device);
+
+/* BC image interception functions */
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_CreateImage(VkDevice device,
+                   const VkImageCreateInfo* pCreateInfo,
+                   const VkAllocationCallbacks* pAllocator,
+                   VkImage* pImage);
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_DestroyImage(VkDevice device,
+                    VkImage image,
+                    const VkAllocationCallbacks* pAllocator);
+
+VKAPI_ATTR void VKAPI_CALL
+wrapper_GetImageMemoryRequirements(VkDevice device,
+                                  VkImage image,
+                                  VkMemoryRequirements* pMemoryRequirements);
